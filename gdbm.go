@@ -359,6 +359,7 @@ type Database struct {
 
 // Additional parameters for opening the database.
 type DatabaseConfig struct {
+	FileName string // Database file name
 	Mode int        // Open mode.
 	BlockSize int   // Desired block size.
 	Flags int       // Additional flags.
@@ -367,11 +368,11 @@ type DatabaseConfig struct {
 
 // OpenConfig opens the named database file.  Additional parameters are
 // supplied in the DatabaseConfig structure.
-func OpenConfig(filename string, cfg DatabaseConfig) (db *Database, err error) {
+func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	db = new(Database)
-	cs := C.CString(filename)
-	defer C.free(unsafe.Pointer(cs))
-	db.dbf = C.gdbm_open(cs, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
+	filename := C.CString(cfg.FileName)
+	defer C.free(unsafe.Pointer(filename))
+	db.dbf = C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
 	if db.dbf == nil {
 		err = &GdbmError{int(C.gdbm_errno)}
 		db = nil
@@ -381,9 +382,11 @@ func OpenConfig(filename string, cfg DatabaseConfig) (db *Database, err error) {
 
 // Open is a simplified interface for OpenConfig
 func Open(filename string, mode int) (db *Database, err error) {
-	return OpenConfig(filename, DatabaseConfig{Mode: mode, FileMode: 0666})
+	return OpenConfig(DatabaseConfig{FileName: filename,
+		                         Mode: mode, FileMode: 0666})
 }
 
+// Close the database.
 func (db *Database) Close() {
 	C.gdbm_close(db.dbf)
 }
@@ -526,7 +529,9 @@ func (db *Database) Dump(cfg DumpConfig) (err error) {
 	if cfg.Rewrite {
 		flags = C.GDBM_NEWDB
 	}
-	if C.gdbm_dump(db.dbf, C.CString(cfg.FileName), C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode)) != 0 {
+	filename := C.CString(cfg.FileName)
+	defer C.free(unsafe.Pointer(filename))
+	if C.gdbm_dump(db.dbf, filename, C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode)) != 0 {
 		err = &GdbmError{int(C.gdbm_errno)}
 	}
 	return
@@ -549,7 +554,9 @@ func (db *Database) Load(cfg DumpConfig) (err error) {
 	if cfg.Rewrite {
 		flag = C.GDBM_REPLACE
 	}
-	if C.gdbm_load(&db.dbf, C.CString(cfg.FileName), C.int(flag), 0, nil) != 0 {
+	filename := C.CString(cfg.FileName)
+	defer C.free(unsafe.Pointer(filename))
+	if C.gdbm_load(&db.dbf, filename, C.int(flag), 0, nil) != 0 {
 		err = &GdbmError{int(C.gdbm_errno)}
 		if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
 			err = nil
