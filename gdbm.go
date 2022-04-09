@@ -37,92 +37,95 @@ package gdbm
 # define GDBM_NUMSYNC 0
 #endif
 
+#define GO_GDBM_NOT_DEFINED     -1
+#define GO_GDBM_NOT_IMPLEMENTED -2
+
 // Provide placeholders for error codes that are not defined in
 // a particular GDBM version.
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 9)
-# define GDBM_BYTE_SWAPPED -1
+# define GDBM_BYTE_SWAPPED GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 9)
-# define GDBM_BAD_FILE_OFFSET -1
+# define GDBM_BAD_FILE_OFFSET GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 9)
-# define GDBM_BAD_OPEN_FLAGS -1
+# define GDBM_BAD_OPEN_FLAGS GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 10)
-# define GDBM_FILE_STAT_ERROR -1
+# define GDBM_FILE_STAT_ERROR GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 10)
-# define GDBM_FILE_EOF -1
+# define GDBM_FILE_EOF GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11)
-# define GDBM_NO_DBNAME -1
+# define GDBM_NO_DBNAME GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11)
-# define GDBM_ERR_FILE_OWNER -1
+# define GDBM_ERR_FILE_OWNER GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11)
-# define GDBM_ERR_FILE_MODE -1
+# define GDBM_ERR_FILE_MODE GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 13)
-# define GDBM_UNKNOWN_ERROR -1
+# define GDBM_UNKNOWN_ERROR GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 13)
-# define GDBM_NEED_RECOVERY -1
+# define GDBM_NEED_RECOVERY GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 13)
-# define GDBM_BACKUP_FAILED -1
+# define GDBM_BACKUP_FAILED GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 13)
-# define GDBM_DIR_OVERFLOW -1
+# define GDBM_DIR_OVERFLOW GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 15)
-# define GDBM_BAD_BUCKET -1
+# define GDBM_BAD_BUCKET GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 15)
-# define GDBM_BAD_HEADER -1
+# define GDBM_BAD_HEADER GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 15)
-# define GDBM_BAD_AVAIL -1
+# define GDBM_BAD_AVAIL GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 15)
-# define GDBM_BAD_HASH_TABLE -1
+# define GDBM_BAD_HASH_TABLE GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 15)
-# define GDBM_BAD_DIR_ENTRY -1
+# define GDBM_BAD_DIR_ENTRY GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 17)
-# define GDBM_FILE_CLOSE_ERROR -1
+# define GDBM_FILE_CLOSE_ERROR GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 17)
-# define GDBM_FILE_SYNC_ERROR -1
+# define GDBM_FILE_SYNC_ERROR GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 18 || ( GDBM_VERSION_MINOR == 18 && GDBM_VERSION_PATCH >= 1 ))
-# define GDBM_FILE_TRUNCATE_ERROR -1
+# define GDBM_FILE_TRUNCATE_ERROR GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 20)
-# define GDBM_BUCKET_CACHE_CORRUPTED -1
+# define GDBM_BUCKET_CACHE_CORRUPTED GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 20)
-# define GDBM_BAD_HASH_ENTRY -1
+# define GDBM_BAD_HASH_ENTRY GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 21)
-# define GDBM_MALFORMED_DATA -1
+# define GDBM_MALFORMED_DATA GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 21)
-# define GDBM_OPT_BADVAL -1
+# define GDBM_OPT_BADVAL GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 21)
-# define GDBM_ERR_SNAPSHOT_CLONE -1
+# define GDBM_ERR_SNAPSHOT_CLONE GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 21)
-# define GDBM_ERR_REALPATH -1
+# define GDBM_ERR_REALPATH GO_GDBM_NOT_DEFINED
 #endif
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 21)
-# define GDBM_ERR_USAGE -1
+# define GDBM_ERR_USAGE GO_GDBM_NOT_DEFINED
 #endif
 
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 12)
-inline int gdbm_last_errno(GDBM_FILE f) { return gdbm_errno; }
+inline int gdbm_last_errno(GDBM_FILE f) { return GO_GDBM_NOT_IMPLEMENTED; }
 inline int gdbm_needs_recovery(GDBM_FILE f) { return 1; }
 #endif
 
@@ -133,6 +136,48 @@ inline datum bytes_to_datum(void *s, size_t len) {
     d.dsize = len;
     return d;
 }
+
+inline char const *get_db_name(GDBM_FILE db) {
+    char *str;
+#ifdef GDBM_GETDBNAME
+    if (gdbm_setopt(db, GDBM_GETDBNAME, &str, sizeof(str)))
+	str = NULL;
+#else
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    str = NULL;
+#endif
+    return str;
+}
+
+inline unsigned int get_db_count(GDBM_FILE db) {
+#if GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11
+    gdbm_count_t n;
+    gdbm_errno = 0;
+    gdbm_count(db, &n);
+    return n;
+#else
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return 0;
+#endif
+}
+
+#if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11)
+int
+gdbm_dump(GDBM_FILE db, const char *filename, int format, int flags, int mode)
+{
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return -1;
+}
+
+int
+gdbm_load(GDBM_FILE *db, const char *filename, int replace, int meta_flags,
+	  unsigned long *line)
+{
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return -1;
+}
+#endif
+
 */
 import "C"
 
@@ -143,20 +188,20 @@ import (
 
 const (
 	// GDBM open modes
-	GDBM_READER  = C.GDBM_READER
-	GDBM_WRITER  = C.GDBM_WRITER
-	GDBM_WRCREAT = C.GDBM_WRCREAT
-	GDBM_NEWDB   = C.GDBM_NEWDB
+	ModeReader  = C.GDBM_READER
+	ModeWriter  = C.GDBM_WRITER
+	ModeWrcreat = C.GDBM_WRCREAT
+	ModeNewdb   = C.GDBM_NEWDB
 
 	// GDBM open flags
-	GDBM_NOLOCK  = C.GDBM_NOLOCK
-	GDBM_NOMMAP  = C.GDBM_NOMMAP
-	GDBM_CLOEXEC = C.GDBM_CLOEXEC
-	GDBM_BSEXACT = C.GDBM_BSEXACT
+	OF_NOLOCK  = C.GDBM_NOLOCK
+	OF_NOMMAP  = C.GDBM_NOMMAP
+	OF_CLOEXEC = C.GDBM_CLOEXEC
+	OF_BSEXACT = C.GDBM_BSEXACT
 
-	GDBM_XVERIFY = C.GDBM_XVERIFY
-	GDBM_PREREAD = C.GDBM_PREREAD
-	GDBM_NUMSYNC = C.GDBM_NUMSYNC
+	OF_XVERIFY = C.GDBM_XVERIFY
+	OF_PREREAD = C.GDBM_PREREAD
+	OF_NUMSYNC = C.GDBM_NUMSYNC
 
 	// Error codes
 	GDBM_NO_ERROR               = C.GDBM_NO_ERROR
@@ -203,6 +248,14 @@ const (
 	GDBM_ERR_SNAPSHOT_CLONE     = C.GDBM_ERR_SNAPSHOT_CLONE
 	GDBM_ERR_REALPATH           = C.GDBM_ERR_REALPATH
 	GDBM_ERR_USAGE              = C.GDBM_ERR_USAGE
+
+	// Special error codes
+	GDBM_NOT_DEFINED            = C.GO_GDBM_NOT_DEFINED
+	GDBM_NOT_IMPLEMENTED        = C.GO_GDBM_NOT_IMPLEMENTED
+
+	// Dump file formats
+	BinaryDump                  = C.GDBM_DUMP_FMT_BINARY
+	AsciiDump                   = C.GDBM_DUMP_FMT_ASCII
 )
 
 // Implementation of the Error interface.
@@ -212,7 +265,13 @@ type GdbmError struct {
 
 // Returns a text describing the error.
 func (err *GdbmError) Error() string {
-	return C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
+	if err.Code() == GDBM_NOT_IMPLEMENTED {
+		return "Function not implemented"
+	} else if err.Code() == GDBM_NOT_DEFINED {
+		return "Error code not defined"
+	} else {
+		return C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
+	}
 }
 
 // Returns a GDBM error code corresponding to the error.
@@ -234,7 +293,7 @@ func (err *GdbmError) Is(target error) bool {
 // Some error codes exist only in sufficiently recent versions of
 // GDBM.  The err.Defined() function returns true if err is defined.
 func (err *GdbmError) Defined() bool {
-	return err.Code() != -1
+	return err.Code() != GDBM_NOT_DEFINED
 }
 
 var (
@@ -282,6 +341,8 @@ var (
 	ErrSnapshotClone        = &GdbmError{GDBM_ERR_SNAPSHOT_CLONE}
 	ErrRealpath             = &GdbmError{GDBM_ERR_REALPATH}
 	ErrUsage                = &GdbmError{GDBM_ERR_USAGE}
+
+	ErrNotImplemented       = &GdbmError{GDBM_NOT_IMPLEMENTED}
 )
 
 func NewSequentialError(code int) error {
@@ -429,6 +490,78 @@ func (db *Database) Iterator() DatabaseIterator {
 		}
 		return ret, nil
 	}
+}
+
+// Return the file name of the database file.
+func (db *Database) FileName() (string, error) {
+	s := C.get_db_name(db.dbf)
+	if s == nil {
+		return "", &GdbmError{int(C.gdbm_errno)};
+	}
+	return C.GoString(s), nil
+}
+
+// Return number of keys stored in the database.
+func (db *Database) Count() (result uint, err error) {
+	result = uint(C.get_db_count(db.dbf))
+	if C.gdbm_errno != C.GDBM_NO_ERROR {
+		err = &GdbmError{int(C.gdbm_errno)}
+	}
+	return
+}
+
+// Dumping and Loading Databases.
+// Both dumping and loading is controlled by the DumpConfig type:
+type DumpConfig struct {
+	FileName string   // Name of the dump file.
+	Format int        // Dump file format: BinaryDump or AsciiDump (dump only).
+	Rewrite bool      // Dump: silently overwrite existing dump file.
+			  // Load: replace existing keys in the database.
+	FileMode int      // File mode to use when creating dump file.
+}
+
+// Dump creates a dump of the database file using the supplied parameters.
+func (db *Database) Dump(cfg DumpConfig) (err error) {
+	flags := C.GDBM_WRCREAT;
+	if cfg.Rewrite {
+		flags = C.GDBM_NEWDB
+	}
+	if C.gdbm_dump(db.dbf, C.CString(cfg.FileName), C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode)) != 0 {
+		err = &GdbmError{int(C.gdbm_errno)}
+	}
+	return
+}
+
+// DumpToFile dump the database in ASCII dump format to the named file.
+// If the output file exists, it will be silently overwritten.
+func (db *Database) DumpToFile(filename string) error {
+	return db.Dump(DumpConfig{FileName: filename,
+		Format: AsciiDump,
+		Rewrite: true,
+		FileMode: 0666})
+}
+
+// Load loads the data from the dump file specified by cfg.FileName into
+// the database.  If cfg.Rewrite is true, existing keys will be overwritten
+// with the data from the dump.  Rest of members of DumpConfig is ignored.
+func (db *Database) Load(cfg DumpConfig) (err error) {
+	flag := C.GDBM_INSERT;
+	if cfg.Rewrite {
+		flag = C.GDBM_REPLACE
+	}
+	if C.gdbm_load(&db.dbf, C.CString(cfg.FileName), C.int(flag), 0, nil) != 0 {
+		err = &GdbmError{int(C.gdbm_errno)}
+		if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
+			err = nil
+		}
+	}
+	return
+}
+
+// LoadFromFile loads the data from the named dump file into the database.
+// Existing keys are silently overwritten.
+func (db *Database) LoadFromFile(filename string) error {
+	return db.Load(DumpConfig{FileName: filename, Rewrite: true})
 }
 
 func Version() (version string) {
