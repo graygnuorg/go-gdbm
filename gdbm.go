@@ -125,19 +125,42 @@ package gdbm
 #endif
 
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 12)
-inline int gdbm_last_errno(GDBM_FILE f) { return GO_GDBM_NOT_IMPLEMENTED; }
-inline int gdbm_needs_recovery(GDBM_FILE f) { return 1; }
+static inline int gdbm_last_errno(GDBM_FILE f) { return GO_GDBM_NOT_IMPLEMENTED; }
+static inline int gdbm_needs_recovery(GDBM_FILE f) { return 1; }
+
+typedef struct
+{
+  void (*errfun) (void *data, char const *fmt, ...);
+  void *data;
+  size_t max_failed_keys;
+  size_t max_failed_buckets;
+  size_t max_failures;
+  size_t recovered_keys;
+  size_t recovered_buckets;
+  size_t failed_keys;
+  size_t failed_buckets;
+  size_t duplicate_keys;
+  char *backup_name;
+} gdbm_recovery;
+
+static inline int gdbm_recover(GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
+{
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return -1;
+}
 #endif
 
 // Create a GDBM datum from data pointer and its length.
-inline datum bytes_to_datum(void *s, size_t len) {
+static inline datum bytes_to_datum(void *s, size_t len)
+{
     datum d;
     d.dptr = s;
     d.dsize = len;
     return d;
 }
 
-inline char const *get_db_name(GDBM_FILE db) {
+static inline char const *get_db_name(GDBM_FILE db)
+{
     char *str;
 #ifdef GDBM_GETDBNAME
     if (gdbm_setopt(db, GDBM_GETDBNAME, &str, sizeof(str)))
@@ -149,7 +172,8 @@ inline char const *get_db_name(GDBM_FILE db) {
     return str;
 }
 
-inline unsigned int get_db_count(GDBM_FILE db) {
+static inline unsigned int get_db_count(GDBM_FILE db)
+{
 #if GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 11
     gdbm_count_t n;
     gdbm_errno = 0;
@@ -635,6 +659,88 @@ func (db *Database) LoadFromFile(filename string) error {
 	return db.Load(DumpConfig{FileName: filename, Rewrite: true})
 }
 
+// Reorganize the database.
+func (db *Database) Reorganize() (err error) {
+	if C.gdbm_reorganize(db.dbf) != 0 {
+		err = &GdbmError{int(C.gdbm_errno)}
+	}
+	return
+}
+
+type RecoveryConfig struct {
+	Backup bool
+	// If true, create the backup file.  The name of the file will be
+	// returned in the BackupName field of RecoveryStat.
+	Force bool
+	// Force recovery: don't check if the database actually needs it.
+
+	// The following three fields are used when set to a non-0 value:
+
+	MaxFailedKeys uint
+	// Report failure after this many failed keys.
+	MaxFailedBuckets uint
+	// Report failure after this many failed buckets.
+	MaxFailures uint
+	// Report failure after this many failures.
+}
+
+type RecoveryStat struct {
+	BackupName string
+	// Name of the backup file (if RecoveryConfig.Backup was set)
+	RecoveredKeys uint
+	// Number of recovered keys.
+	RecoveredBuckets uint
+	// Number of recovered buckets.
+	FailedKeys uint
+	// Number of keys that were not recovered.
+	FailedBuckets uint
+	// Number of buckets were not recovered.
+	DuplicateKeys uint
+	// Number of duplicated keys.
+}
+
+// Recover the database.
+func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) {
+	var rcv C.gdbm_recovery
+	flags := 0
+	if cfg.MaxFailedKeys > 0 {
+		rcv.max_failed_keys = C.size_t(cfg.MaxFailedKeys)
+		flags |= C.GDBM_RCVR_MAX_FAILED_KEYS;
+	}
+	if cfg.MaxFailedBuckets > 0 {
+		rcv.max_failed_buckets = C.size_t(cfg.MaxFailedBuckets)
+		flags |= C.GDBM_RCVR_MAX_FAILED_BUCKETS;
+	}
+	if cfg.MaxFailures > 0 {
+		rcv.max_failures = C.size_t(cfg.MaxFailures)
+		flags |= C.GDBM_RCVR_MAX_FAILURES
+	}
+	if cfg.Backup {
+		flags |= C.GDBM_RCVR_BACKUP
+	}
+	if cfg.Force {
+		flags |= C.GDBM_RCVR_FORCE
+	}
+
+	res := C.gdbm_recover(db.dbf, &rcv, C.int(flags))
+	if res != 0 {
+		return nil, &GdbmError{int(C.gdbm_errno)}
+	}
+
+	if cfg.Backup {
+		stat.BackupName = C.GoString(rcv.backup_name)
+		defer C.free(unsafe.Pointer(rcv.backup_name))
+	}
+	stat.RecoveredKeys  = uint(rcv.recovered_keys)
+	stat.RecoveredBuckets = uint(rcv.recovered_buckets)
+	stat.FailedKeys = uint(rcv.failed_keys)
+	stat.FailedBuckets = uint(rcv.failed_buckets)
+	stat.DuplicateKeys = uint(rcv.duplicate_keys)
+
+	return
+}
+
+// Returns the GDBM library version.
 func Version() (version string) {
 	return C.GoString(C.gdbm_version)
 }
