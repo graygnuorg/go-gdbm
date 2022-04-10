@@ -26,7 +26,7 @@ func TestCreate(t *testing.T) {
 	t.Cleanup(func() {
 		os.Remove(dbname)
 	})
-	
+
 	db, err := Open(dbname, ModeNewdb)
 	if err != nil {
 		t.Error("Can't create the database:", err)
@@ -73,7 +73,7 @@ func TestDelete(t *testing.T) {
 	if err != nil {
 		t.Error("Can't delete:", err)
 	}
-}		
+}
 
 func TestDeleteNonexistent(t *testing.T) {
 	TestCreate(t)
@@ -86,7 +86,7 @@ func TestDeleteNonexistent(t *testing.T) {
 	if !errors.Is(err, ErrItemNotFound) {
 		t.Error("Unexpected error:", err)
 	}
-}		
+}
 
 func TestInsertExistent(t *testing.T) {
 	TestCreate(t)
@@ -96,10 +96,10 @@ func TestInsertExistent(t *testing.T) {
 	}
 	defer db.Close()
 	err = db.Store([]byte("seven"), []byte("SEVEN"), false)
-	if !errors.Is(err, ErrCannotReplace) { 
+	if !errors.Is(err, ErrCannotReplace) {
 		t.Error("Unexpected error:", err)
 	}
-}		
+}
 
 func TestReplace(t *testing.T) {
 	TestCreate(t)
@@ -112,14 +112,14 @@ func TestReplace(t *testing.T) {
 	if err != nil {
 		t.Error("Can't replace:", err)
 	}
-}		
+}
 
 func check_keys(db *Database, t *testing.T) {
 	keymap := make(map[string]int)
-        for i, key := range keys {
+	for i, key := range keys {
 		keymap[key] = i
 	}
-	
+
 	next := db.Iterator()
 	var key []byte
 	var err error
@@ -128,7 +128,7 @@ func check_keys(db *Database, t *testing.T) {
 	}
 	if !errors.Is(err, ErrItemNotFound) {
 		t.Error("iterating failed: ", err)
-        }
+	}
 
 	if len(keymap) != 0 {
 		t.Error("Some keys missing")
@@ -149,18 +149,19 @@ func TestFileName(t *testing.T) {
 	t.Cleanup(func() {
 		os.Remove(dbname)
 	})
-	
+
 	db, err := Open(dbname, ModeNewdb)
 	if err != nil {
 		t.Error("Can't open the database:", err)
 	}
 	defer db.Close()
 	name, err := db.FileName()
-	if err != nil {
+	if err == nil {
+		if name != dbname {
+			t.Error("wrong database name returned")
+		}
+	} else if !errors.Is(err, ErrNotImplemented) {
 		t.Error("db.FileName(): ", err)
-	}
-	if name != dbname {
-		t.Error("wrong database name returned")
 	}
 }
 
@@ -177,9 +178,9 @@ func TestCount(t *testing.T) {
 	}
 	if n != 10 {
 		t.Error("wrong number of keys")
-	}		
+	}
 }
-	
+
 func TestDump(t *testing.T) {
 	dumpName := "junk.dump"
 	restoredName := "restored.db"
@@ -188,7 +189,7 @@ func TestDump(t *testing.T) {
 		os.Remove(dumpName)
 		os.Remove(restoredName)
 	})
-	
+
 	TestCreate(t)
 	db, err := Open(dbname, ModeReader)
 	if err != nil {
@@ -198,7 +199,11 @@ func TestDump(t *testing.T) {
 	err = db.DumpToFile(dumpName)
 	db.Close()
 	if err != nil {
-		t.Error("Dump failed: ", err)
+		if errors.Is(err, ErrNotImplemented) {
+			return
+		} else {
+			t.Error("Dump failed: ", err)
+		}
 	}
 
 	db, err = Open(restoredName, ModeNewdb)
@@ -211,6 +216,38 @@ func TestDump(t *testing.T) {
 		t.Error("Load failed: ", err)
 	}
 	check_keys(db, t)
-}	
-	
-			
+}
+
+func TestModeLoad(t *testing.T) {
+	dumpName := "junk.dump"
+	restoredName := "restored.db"
+
+	t.Cleanup(func() {
+		os.Remove(dumpName)
+		os.Remove(restoredName)
+	})
+
+	TestCreate(t)
+	db, err := Open(dbname, ModeReader)
+	if err != nil {
+		if errors.Is(err, ErrNotImplemented) {
+			return
+		} else {
+			t.Error("Can't open the database:", err)
+		}
+	}
+
+	err = db.DumpToFile(dumpName)
+	db.Close()
+	if err != nil {
+		t.Error("Dump failed: ", err)
+	}
+
+	db, err = OpenConfig(DatabaseConfig{FileName: dumpName,
+			     Mode: ModeLoad})
+	if err != nil {
+		t.Error("Load failed: ", err)
+	}
+	defer db.Close()
+	check_keys(db, t)
+}

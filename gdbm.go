@@ -193,12 +193,13 @@ const (
 	ModeWrcreat = C.GDBM_WRCREAT
 	ModeNewdb   = C.GDBM_NEWDB
 
+	ModeLoad    = 4
+
 	// GDBM open flags
 	OF_NOLOCK  = C.GDBM_NOLOCK
 	OF_NOMMAP  = C.GDBM_NOMMAP
 	OF_CLOEXEC = C.GDBM_CLOEXEC
 	OF_BSEXACT = C.GDBM_BSEXACT
-
 	OF_XVERIFY = C.GDBM_XVERIFY
 	OF_PREREAD = C.GDBM_PREREAD
 	OF_NUMSYNC = C.GDBM_NUMSYNC
@@ -357,33 +358,88 @@ type Database struct {
 	dbf C.GDBM_FILE
 }
 
-// Additional parameters for opening the database.
+// The DatabaseConfig structure controls opening the database.
 type DatabaseConfig struct {
-	FileName string // Database file name
-	Mode int        // Open mode.
-	BlockSize int   // Desired block size.
-	Flags int       // Additional flags.
-	FileMode int    // File mode to use when creating new database.
+	FileName string
+	// Database or file name.  If Mode is ModeLoad, this is the
+	// name of the dump file from which a new database will be
+	// created.  The actual file name will then be set from the
+	// dump file and can further be obtained using the database
+	// FileName() method.
+	Mode int
+	// Open mode.
+	//   ModeReader  - Open existing database in read-only mode.
+	//   ModeWriter  - Open existing database in read-write mode.
+	//   ModeWrcreat - Open existing database in read-write mode.
+	//                 If it doesn't exist, create it.
+	//   ModeNewdb   - Create a new empty database, silently over-
+	//                 writing the file, if it already exists.
+	//   ModeLoad    - Create new database and populate it from
+	//                 the ASCII dump file in FileName.  Actual file
+	//                 name, permissions and, if possible, ownership
+	//                 will be restored from the dump.
+	Flags int
+	// Additional flags.  A bitmask composed by ORing the following
+	// constants:
+	//   OF_NOLOCK   - Don't lock the created database.
+	//   OF_NOMMAP   - Disable memory mapping, use the standard I/O
+	//                 functions only.
+	//   OF_PREREAD  - When mapping GDBM file to memory, read its
+	//                 contents immediately, instead of when needed.
+	//   OF_CLOEXEC  - Close the database file descriptor on exec.
+	//   OF_XVERIFY  - Enable additional consistency checks.
+	// The following flags are used only when creating a new database
+	// file:
+	//   OF_BSEXACT  - Disable adjustments of the BlockSize (see below).
+	//                 If the requested block size cannot be used without
+	//                 adjustment, the OpenConfigure function will fail
+	//                 with ErrBlockSizeError.
+	//   OF_NUMSYNC  - Create database in extended format (best suited
+	//                 for effective crash recovery).
+	// The two fields below are used only when creating a new database
+	// (i.e. when Mode is ModeNewdb or ModeWrcreat, and the database
+	// does not exist).
+	BlockSize int
+	// Desired block size.
+	FileMode int
+	// File mode to use when creating new database.
 }
 
-// OpenConfig opens the named database file.  Additional parameters are
-// supplied in the DatabaseConfig structure.
+// OpenConfig opens or creates a database file.  See the comments to the
+// DatabaseConfig structure.
 func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	db = new(Database)
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
-	db.dbf = C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
-	if db.dbf == nil {
-		err = &GdbmError{int(C.gdbm_errno)}
-		db = nil
+	if (cfg.Mode == ModeLoad) {
+		if C.gdbm_load(&db.dbf, filename, C.GDBM_REPLACE, 0, nil) != 0 {
+			err = &GdbmError{int(C.gdbm_errno)}
+			if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
+				err = nil
+			} else {
+				db = nil
+			}
+		}
+	} else {
+		db.dbf = C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
+		if db.dbf == nil {
+			err = &GdbmError{int(C.gdbm_errno)}
+			db = nil
+		}
 	}
 	return
 }
 
-// Open is a simplified interface for OpenConfig
+// Open is a simplified interface for OpenConfig.  Filename is the name
+// of the database to open and mode is one of: ModeReader, ModeWriter,
+// ModeWrcreat or ModeNewdb.  See the descripion of the Mode field in
+// the DatabaseConfig structure.
 func Open(filename string, mode int) (db *Database, err error) {
+	if mode == ModeLoad {
+		return nil, ErrUsage
+	}
 	return OpenConfig(DatabaseConfig{FileName: filename,
-		                         Mode: mode, FileMode: 0666})
+					 Mode: mode, FileMode: 0666})
 }
 
 // Close the database.
@@ -453,17 +509,19 @@ func (db *Database) Delete(key []byte) (err error) {
 	return
 }
 
+// Check if the database needs recovery.  Return true if so.
 func (db *Database) NeedsRecovery() bool {
 	return C.gdbm_needs_recovery(db.dbf) != 0
 }
 
+// Return the last error that occurred on the database.
 func (db *Database) LastError() error {
 	return &GdbmError{int(C.gdbm_last_errno(db.dbf))}
 }
 
 type DatabaseIterator func () ([]byte, error)
 
-// Iterator returns an iterator function for visiting all records in the
+// Iterator() returns an iterator function for visiting all records in the
 // database.
 //
 // Example:
@@ -504,7 +562,7 @@ func (db *Database) FileName() (string, error) {
 	return C.GoString(s), nil
 }
 
-// Return number of keys stored in the database.
+// Return the number of keys stored in the database.
 func (db *Database) Count() (result uint, err error) {
 	result = uint(C.get_db_count(db.dbf))
 	if C.gdbm_errno != C.GDBM_NO_ERROR {
@@ -513,17 +571,23 @@ func (db *Database) Count() (result uint, err error) {
 	return
 }
 
-// Dumping and Loading Databases.
-// Both dumping and loading is controlled by the DumpConfig type:
+// The DumpConfig structure controls dumping the database and restoring
+// it (loading) from the existing dump.
 type DumpConfig struct {
-	FileName string   // Name of the dump file.
-	Format int        // Dump file format: BinaryDump or AsciiDump (dump only).
-	Rewrite bool      // Dump: silently overwrite existing dump file.
-			  // Load: replace existing keys in the database.
-	FileMode int      // File mode to use when creating dump file.
+	FileName string
+	// Name of the dump file.
+	Format int
+	// Dump file format: BinaryDump or AsciiDump.  This field is
+	// used only when dumping (see the Dump method).
+	Rewrite bool
+	// When dumping: silently overwrite existing dump file.
+	// When loading: replace existing keys in the database.
+	FileMode int
+	// File mode to use when creating dump file.
 }
 
-// Dump creates a dump of the database file using the supplied parameters.
+// Dump creates a dump of the database file using the information from
+// DumpConfig.
 func (db *Database) Dump(cfg DumpConfig) (err error) {
 	flags := C.GDBM_WRCREAT;
 	if cfg.Rewrite {
@@ -537,7 +601,7 @@ func (db *Database) Dump(cfg DumpConfig) (err error) {
 	return
 }
 
-// DumpToFile dump the database in ASCII dump format to the named file.
+// DumpToFile() dumps the database in ASCII dump format to the named file.
 // If the output file exists, it will be silently overwritten.
 func (db *Database) DumpToFile(filename string) error {
 	return db.Dump(DumpConfig{FileName: filename,
@@ -546,7 +610,7 @@ func (db *Database) DumpToFile(filename string) error {
 		FileMode: 0666})
 }
 
-// Load loads the data from the dump file specified by cfg.FileName into
+// Load() loads the data from the dump file specified by cfg.FileName into
 // the database.  If cfg.Rewrite is true, existing keys will be overwritten
 // with the data from the dump.  Rest of members of DumpConfig is ignored.
 func (db *Database) Load(cfg DumpConfig) (err error) {
@@ -565,7 +629,7 @@ func (db *Database) Load(cfg DumpConfig) (err error) {
 	return
 }
 
-// LoadFromFile loads the data from the named dump file into the database.
+// LoadFromFile() loads the data from the named dump file into the database.
 // Existing keys are silently overwritten.
 func (db *Database) LoadFromFile(filename string) error {
 	return db.Load(DumpConfig{FileName: filename, Rewrite: true})
