@@ -385,8 +385,8 @@ type Database struct {
 // The DatabaseConfig structure controls opening the database.
 type DatabaseConfig struct {
 	FileName string
-	// Database or file name.  If Mode is ModeLoad, this is the
-	// name of the dump file from which a new database will be
+	// Database or dump file name.  If Mode is ModeLoad, this is 
+	// the name of the dump file from which a new database will be
 	// created.  The actual file name will then be set from the
 	// dump file and can further be obtained using the database
 	// FileName() method.
@@ -740,7 +740,15 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 	return
 }
 
+// Synchronizes the changes in db with its disk file.
+func (db *Database) Sync() (err error) {
+	if C.gdbm_sync(db.dbf) != 0 {
+		err = &GdbmError{int(C.gdbm_errno)}
+	}
+	return
+}
+
 // Returns the GDBM library version.
-func Version() (version string) {
+func Version() string {
 	return C.GoString(C.gdbm_version)
 }
