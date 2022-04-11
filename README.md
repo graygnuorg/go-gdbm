@@ -191,7 +191,7 @@ because the database file didn't exist:
 ```
     db, err := Open("in.db", ModeReader)
     if err != nil {
-        if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist {
+        if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist) {
 	    // Handle the error here
 	}
     }
