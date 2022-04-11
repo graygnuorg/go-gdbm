@@ -19,6 +19,7 @@ package gdbm
 /*
 #cgo LDFLAGS: -lgdbm
 #include <stdlib.h>
+#include <errno.h>
 #include <gdbm.h>
 
 // Additional flags for the gdbm_open function.  Define to 0 if not
@@ -39,6 +40,7 @@ package gdbm
 
 #define GO_GDBM_NOT_DEFINED     -1
 #define GO_GDBM_NOT_IMPLEMENTED -2
+#define GO_GDBM_SNAPSHOT_EXISTS -3
 
 // Provide placeholders for error codes that are not defined in
 // a particular GDBM version.
@@ -150,6 +152,31 @@ static inline int gdbm_recover(GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
 }
 #endif
 
+#if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 21)
+enum gdbm_latest_snapshot_status
+  {
+    GDBM_SNAPSHOT_OK,
+    GDBM_SNAPSHOT_BAD,
+    GDBM_SNAPSHOT_ERR,
+    GDBM_SNAPSHOT_SAME,
+    GDBM_SNAPSHOT_SUSPICIOUS
+  };
+
+static inline int
+gdbm_failure_atomic(GDBM_FILE dbf, const char *a, const char *b)
+{
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return -1;
+}
+
+static inline int
+gdbm_latest_snapshot(const char *a, const char *b, const char **ret)
+{
+    errno = ENOSYS;
+    return GDBM_SNAPSHOT_ERR;
+}
+#endif
+
 // Create a GDBM datum from data pointer and its length.
 static inline datum bytes_to_datum(void *s, size_t len)
 {
@@ -209,6 +236,9 @@ import (
 	"errors"
 	"syscall"
 	"unsafe"
+	"strings"
+	"path/filepath"
+	"os"
 )
 
 const (
@@ -278,6 +308,7 @@ const (
 	// Special error codes
 	GDBM_NOT_DEFINED            = C.GO_GDBM_NOT_DEFINED
 	GDBM_NOT_IMPLEMENTED        = C.GO_GDBM_NOT_IMPLEMENTED
+	GDBM_SNAPSHOT_EXISTS        = C.GO_GDBM_SNAPSHOT_EXISTS
 
 	// Dump file formats
 	BinaryDump                  = C.GDBM_DUMP_FMT_BINARY
@@ -299,11 +330,18 @@ func newGdbmError(syserr error) error {
 
 // Returns a text describing the error.
 func (err *GdbmError) Error() string {
-	if err.Code() == GDBM_NOT_IMPLEMENTED {
+	switch err.Code() {
+	case GDBM_SNAPSHOT_EXISTS:
+		if err.sysError != nil {
+			return "Can't check if snapshot exists: " + err.sysError.Error()
+		} else {
+			return "Snapshots exist"
+		}
+	case GDBM_NOT_IMPLEMENTED:
 		return "Function not implemented"
-	} else if err.Code() == GDBM_NOT_DEFINED {
+	case GDBM_NOT_DEFINED:
 		return "Error code not defined"
-	} else {
+	default:
 		errstr := C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
 		if err.sysError != nil {
 			errstr += ": " + err.sysError.Error()
@@ -338,6 +376,38 @@ func (err *GdbmError) Is(target error) bool {
 // GDBM.  The err.Defined() function returns true if err is defined.
 func (err *GdbmError) Defined() bool {
 	return err.Code() != GDBM_NOT_DEFINED
+}
+
+// SnapshotError represents the result of selecting the snapshot
+// to recover the database from.
+type SnapshotError uintptr
+
+// Returns true if target and err are the same SnapshotError.
+func (err SnapshotError) Is(target error) bool {
+	if code, ok := target.(SnapshotError); ok {
+		return err == code
+	}
+	return false
+}
+
+// Unwraps SnapshotError.
+func (err SnapshotError) Unwrap() error {
+	return errors.New(err.Error())
+}
+
+// Returns a textual description of the error.
+func (err SnapshotError) Error() (result string) {
+	switch err {
+	case C.GDBM_SNAPSHOT_OK:
+		result = "Success"
+	case C.GDBM_SNAPSHOT_BAD:
+		result = "Neither snapshot is readable"
+	case C.GDBM_SNAPSHOT_SAME:
+		result = "Snapshot numsync and dates are the same"
+	case C.GDBM_SNAPSHOT_SUSPICIOUS:
+		result = "Selected snapshot is unreliable"
+	}
+	return
 }
 
 var (
@@ -387,9 +457,15 @@ var (
 	ErrUsage                = &GdbmError{errorCode: GDBM_ERR_USAGE}
 
 	ErrNotImplemented       = &GdbmError{errorCode: GDBM_NOT_IMPLEMENTED}
+	ErrSnapshotExist        = &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS}
+
+	ErrSnapshotOK           = SnapshotError(C.GDBM_SNAPSHOT_OK)
+	ErrSnapshotBad          = SnapshotError(C.GDBM_SNAPSHOT_BAD)
+	ErrSnapshotSame         = SnapshotError(C.GDBM_SNAPSHOT_SAME)
+	ErrSnapshotSuspicious   = SnapshotError(C.GDBM_SNAPSHOT_SUSPICIOUS)
 )
 
-func LastSequentialError() error {
+func lastSequentialError() error {
 	code := int(C.gdbm_errno)
 	if code == GDBM_NO_ERROR {
 		code = GDBM_ITEM_NOT_FOUND
@@ -397,15 +473,19 @@ func LastSequentialError() error {
 	return &GdbmError{errorCode: code}
 }
 
+// A pair of database snapshots.
+type DatabaseSnapshots [2]string
+
 // Database represents a GDBM database file.
 type Database struct {
 	dbf C.GDBM_FILE
+	snapshots *DatabaseSnapshots
 }
 
 // The DatabaseConfig structure controls opening the database.
 type DatabaseConfig struct {
 	FileName string
-	// Database or dump file name.  If Mode is ModeLoad, this is 
+	// Database or dump file name.  If Mode is ModeLoad, this is
 	// the name of the dump file from which a new database will be
 	// created.  The actual file name will then be set from the
 	// dump file and can further be obtained using the database
@@ -436,7 +516,7 @@ type DatabaseConfig struct {
 	// file:
 	//   OF_BSEXACT  - Disable adjustments of the BlockSize (see below).
 	//                 If the requested block size cannot be used without
-	//                 adjustment, the OpenConfigure function will fail
+	//                 adjustment, the OpenConfig function will fail
 	//                 with ErrBlockSizeError.
 	//   OF_NUMSYNC  - Create database in extended format (best suited
 	//                 for effective crash recovery).
@@ -447,16 +527,95 @@ type DatabaseConfig struct {
 	// Desired block size.
 	FileMode int
 	// File mode to use when creating new database.
+	CrashTolerance bool
+	// Enable crash tolerance support (see
+	// https://www.gnu.org.ua/software/gdbm/manual/Crash-Tolerance.html)
+}
+
+var snapshotSuffix = []string{
+	".s1",
+	".s2",
+}
+
+// Return a pointer to a pair of snapshots for the given file name.
+func SnapshotNames(filename string) *DatabaseSnapshots {
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	return &DatabaseSnapshots{
+		base + snapshotSuffix[0],
+		base + snapshotSuffix[1],
+	}
+}
+
+func fileExists(name string) (res bool, err error) {
+	_, e := os.Stat(name)
+	if e == nil {
+		res = true
+	} else if errors.Is(e, os.ErrNotExist) {
+		res = false
+	} else {
+		err = e
+	}
+	return
+}
+
+// Check if at least one of the snapshot files exists.  Return true
+// if so.
+func (s *DatabaseSnapshots) Exist() (res bool, err error) {
+	exists, err := fileExists(s[0])
+	if exists || err != nil {
+		return exists, err
+	}
+	return fileExists(s[1])
+}
+
+// Remove both snapshots.
+func (s *DatabaseSnapshots) Remove() {
+	os.Remove(s[0])
+	os.Remove(s[1])
+}
+
+// Select among the snapshot pair the file that should be used for
+// database recovery.  On success, return its name and nil.  On
+// error, return unspecified result and error code.  The latter can
+// be one of:
+//   ErrNotImplemented
+//       Crash tolerance is not implemented by the version of libgdbm the
+//       package is linked with.
+//   A SnapshotError object
+//       Unable to select a snapshot.
+//   A sycall.Error object
+//       An error occurred while analyzing snapshot files.
+func (s *DatabaseSnapshots) Select() (result string, err error) {
+	s1 := C.CString(s[0])
+	defer C.free(unsafe.Pointer(s1))
+	s2 := C.CString(s[1])
+	defer C.free(unsafe.Pointer(s2))
+	var selection *C.char
+	res, syserr := C.gdbm_latest_snapshot(s1, s2, &selection)
+	switch res {
+	case C.GDBM_SNAPSHOT_OK:
+		result = C.GoString(selection)
+	case C.GDBM_SNAPSHOT_ERR:
+		if errno, ok := syserr.(syscall.Errno); ok && errno == C.ENOSYS {
+			err = ErrNotImplemented
+		} else {
+			err = syserr
+		}
+	default:
+		err = SnapshotError(res)
+	}
+	return
 }
 
 // OpenConfig opens or creates a database file.  See the comments to the
 // DatabaseConfig structure.
 func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	db = new(Database)
-	filename := C.CString(cfg.FileName)
-	defer C.free(unsafe.Pointer(filename))
+	filename := cfg.FileName
+	cfilename := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfilename))
 	if (cfg.Mode == ModeLoad) {
-		res, errno := C.gdbm_load(&db.dbf, filename, C.GDBM_REPLACE, 0, nil)
+		res, errno := C.gdbm_load(&db.dbf, cfilename, C.GDBM_REPLACE, 0, nil)
 		if res != 0 {
 			err = newGdbmError(errno)
 			if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
@@ -465,13 +624,51 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 				db = nil
 			}
 		}
+		if cfg.CrashTolerance {
+			filename, err = db.FileName()
+			if err != nil {
+				db.close()
+				return nil, err
+			}
+			db.snapshots = SnapshotNames(filename)
+			exists, e := db.snapshots.Exist()
+			if e != nil {
+				db.close()
+				return nil, &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS, sysError: e}
+			}
+			if exists {
+				db.close()
+				return nil, &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS}
+			}
+		}
 	} else {
-		dbf, errno := C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
+		if cfg.CrashTolerance {
+			db.snapshots = SnapshotNames(filename)
+			exists, e := db.snapshots.Exist()
+			if e != nil {
+				return nil, &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS, sysError: e}
+			}
+			if exists {
+				return nil, &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS}
+			}
+		}
+		dbf, errno := C.gdbm_open(cfilename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
 		if dbf == nil {
 			err = newGdbmError(errno)
 			db = nil
 		} else {
 			db.dbf = dbf
+		}
+	}
+	if db != nil && cfg.CrashTolerance {
+		s1 := C.CString(db.snapshots[0])
+		defer C.free(unsafe.Pointer(s1))
+		s2 := C.CString(db.snapshots[1])
+		defer C.free(unsafe.Pointer(s2))
+		res, errno := C.gdbm_failure_atomic(db.dbf, s1, s2)
+		if res != 0 {
+			db.Close()
+			return nil, errno
 		}
 	}
 	return
@@ -489,9 +686,16 @@ func Open(filename string, mode int) (db *Database, err error) {
 					 Mode: mode, FileMode: 0666})
 }
 
+func (db *Database) close() {
+	C.gdbm_close(db.dbf)
+}
+
 // Close the database.
 func (db *Database) Close() {
 	C.gdbm_close(db.dbf)
+	if db.snapshots != nil {
+		db.snapshots.Remove()
+	}
 }
 
 // Exists returns true if the key exists in the database.
@@ -564,7 +768,7 @@ func (db *Database) NeedsRecovery() bool {
 // Return the last error that occurred on the database.
 func (db *Database) LastError() error {
 	code := C.gdbm_last_errno(db.dbf)
-	var syserr syscall.Errno
+	var syserr error
 	if C.gdbm_check_syserr(code) != 0 {
 		syserr = syscall.Errno(C.gdbm_last_syserr(db.dbf))
 	}
@@ -589,7 +793,7 @@ func (db *Database) Iterator() DatabaseIterator {
 	cur := C.gdbm_firstkey(db.dbf)
 	var err error
 	if cur.dptr == nil {
-		err = LastSequentialError()
+		err = lastSequentialError()
 	}
 	return func () ([]byte, error) {
 		if err != nil {
@@ -599,7 +803,7 @@ func (db *Database) Iterator() DatabaseIterator {
 		ret := C.GoBytes(unsafe.Pointer(cur.dptr), cur.dsize)
 		cur = C.gdbm_nextkey(db.dbf, cur)
 		if cur.dptr == nil {
-			err = LastSequentialError()
+			err = lastSequentialError()
 		}
 		return ret, nil
 	}
@@ -776,6 +980,42 @@ func (db *Database) Sync() (err error) {
 		err = db.LastError()
 	}
 	return
+}
+
+// Restore the database file from one of its snapshots.
+func SnapshotRestore(filename string) error {
+	fileinfo, err := os.Stat(filename)
+	if err != nil {
+		return err
+	}
+
+	snapshots := SnapshotNames(filename)
+	snapname, err := snapshots.Select()
+	if err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(filename), filepath.Base(filename))
+	if err != nil {
+		return err
+	}
+	err = os.Rename(filename, temp.Name())
+	if err != nil {
+		os.Remove(temp.Name())
+		return err
+	}
+
+	err = os.Rename(snapname, filename)
+	if err != nil {
+		os.Rename(temp.Name(), filename)
+		return err
+	}
+
+	os.Chmod(filename, fileinfo.Mode().Perm())
+
+	os.Remove(temp.Name())
+	snapshots.Remove()
+
+	return nil
 }
 
 // Returns the GDBM library version.

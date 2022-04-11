@@ -9,7 +9,7 @@ The simplest way to open a database is using the `Open` function:
 ```
    import "github.com/graygnuorg/go-gdbm"
 
-   db, err := Open("input.gdbm", ModeReader)
+   db, err := gdbm.Open("input.gdbm", gdbm.ModeReader)
    if err != nil {
        panic(err)
    }
@@ -118,12 +118,11 @@ An example of using the `OpenConfig` function:
 ```
    import "github.com/graygnuorg/go-gdbm"
 
-   db, err := OpenConfig(DatabaseConfig{
+   db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{
 			     FileName: "file.gdbm",
-			     Mode: ModeNewdb,
-			     Flags: OF_NOMMAP,
-			     FileMode: 0600
-			 })
+			     Mode: gdbm.ModeNewdb,
+			     Flags: gdbm.OF_NOMMAP,
+			     FileMode: 0600})
    if err != nil {
        panic(err)
    }
@@ -189,7 +188,7 @@ example, the following code tests if opening the database failed
 because the database file didn't exist:
 
 ```
-    db, err := Open("in.db", ModeReader)
+    db, err := gdbm.Open("in.db", gdbm.ModeReader)
     if err != nil {
         if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist) {
 	    // Handle the error here
