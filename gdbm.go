@@ -288,6 +288,10 @@ type GdbmError struct {
 	ErrorCode int
 }
 
+func LastGdbmError() error {
+	return &GdbmError{int(C.gdbm_errno)}
+}
+
 // Returns a text describing the error.
 func (err *GdbmError) Error() string {
 	if err.Code() == GDBM_NOT_IMPLEMENTED {
@@ -370,7 +374,8 @@ var (
 	ErrNotImplemented       = &GdbmError{GDBM_NOT_IMPLEMENTED}
 )
 
-func NewSequentialError(code int) error {
+func LastSequentialError() error {
+	code := int(C.gdbm_errno)
 	if code == GDBM_NO_ERROR {
 		code = GDBM_ITEM_NOT_FOUND
 	}
@@ -437,7 +442,7 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	defer C.free(unsafe.Pointer(filename))
 	if (cfg.Mode == ModeLoad) {
 		if C.gdbm_load(&db.dbf, filename, C.GDBM_REPLACE, 0, nil) != 0 {
-			err = &GdbmError{int(C.gdbm_errno)}
+			err = LastGdbmError()
 			if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
 				err = nil
 			} else {
@@ -447,7 +452,7 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	} else {
 		db.dbf = C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
 		if db.dbf == nil {
-			err = &GdbmError{int(C.gdbm_errno)}
+			err = LastGdbmError()
 			db = nil
 		}
 	}
@@ -494,7 +499,7 @@ func (db *Database) Fetch(key []byte) (value []byte, err error) {
 	defer C.free(unsafe.Pointer(kptr))
 	vdat := C.gdbm_fetch(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))));
 	if vdat.dptr == nil {
-		return []byte{}, &GdbmError{int(C.gdbm_errno)}
+		return []byte{}, LastGdbmError()
 	}
 	value = C.GoBytes(unsafe.Pointer(vdat.dptr), vdat.dsize)
 	defer C.free(unsafe.Pointer(vdat.dptr))
@@ -517,7 +522,7 @@ func (db *Database) Store(key []byte, value []byte, replace bool) (err error) {
 	res := C.gdbm_store(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))),
 		C.bytes_to_datum(vptr, C.ulong(len(value))), C.int(rflag))
 	if res != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
@@ -528,7 +533,7 @@ func (db *Database) Delete(key []byte) (err error) {
 	defer C.free(unsafe.Pointer(kptr))
 	res := C.gdbm_delete(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))))
 	if res != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
@@ -561,7 +566,7 @@ func (db *Database) Iterator() DatabaseIterator {
 	cur := C.gdbm_firstkey(db.dbf)
 	var err error
 	if cur.dptr == nil {
-		err = NewSequentialError(int(C.gdbm_errno))
+		err = LastSequentialError()
 	}
 	return func () ([]byte, error) {
 		if err != nil {
@@ -571,7 +576,7 @@ func (db *Database) Iterator() DatabaseIterator {
 		ret := C.GoBytes(unsafe.Pointer(cur.dptr), cur.dsize)
 		cur = C.gdbm_nextkey(db.dbf, cur)
 		if cur.dptr == nil {
-			err = NewSequentialError(int(C.gdbm_errno))
+			err = LastSequentialError()
 		}
 		return ret, nil
 	}
@@ -581,7 +586,7 @@ func (db *Database) Iterator() DatabaseIterator {
 func (db *Database) FileName() (string, error) {
 	s := C.get_db_name(db.dbf)
 	if s == nil {
-		return "", &GdbmError{int(C.gdbm_errno)};
+		return "", LastGdbmError();
 	}
 	return C.GoString(s), nil
 }
@@ -590,7 +595,7 @@ func (db *Database) FileName() (string, error) {
 func (db *Database) Count() (result uint, err error) {
 	result = uint(C.get_db_count(db.dbf))
 	if C.gdbm_errno != C.GDBM_NO_ERROR {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
@@ -620,7 +625,7 @@ func (db *Database) Dump(cfg DumpConfig) (err error) {
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
 	if C.gdbm_dump(db.dbf, filename, C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode)) != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
@@ -645,7 +650,7 @@ func (db *Database) Load(cfg DumpConfig) (err error) {
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
 	if C.gdbm_load(&db.dbf, filename, C.int(flag), 0, nil) != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 		if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
 			err = nil
 		}
@@ -662,7 +667,7 @@ func (db *Database) LoadFromFile(filename string) error {
 // Reorganize the database.
 func (db *Database) Reorganize() (err error) {
 	if C.gdbm_reorganize(db.dbf) != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
@@ -724,7 +729,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 
 	res := C.gdbm_recover(db.dbf, &rcv, C.int(flags))
 	if res != 0 {
-		return nil, &GdbmError{int(C.gdbm_errno)}
+		return nil, LastGdbmError()
 	}
 
 	if cfg.Backup {
@@ -743,7 +748,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 // Synchronizes the changes in db with its disk file.
 func (db *Database) Sync() (err error) {
 	if C.gdbm_sync(db.dbf) != 0 {
-		err = &GdbmError{int(C.gdbm_errno)}
+		err = LastGdbmError()
 	}
 	return
 }
