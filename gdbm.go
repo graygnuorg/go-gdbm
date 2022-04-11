@@ -207,6 +207,7 @@ import "C"
 
 import (
 	"errors"
+	"syscall"
 	"unsafe"
 )
 
@@ -286,10 +287,14 @@ const (
 // Implementation of the Error interface.
 type GdbmError struct {
 	ErrorCode int
+	SysErr error
 }
 
-func LastGdbmError() error {
-	return &GdbmError{int(C.gdbm_errno)}
+func NewGdbmError(syserr error) error {
+	if C.gdbm_check_syserr(C.gdbm_errno) == 0 {
+		syserr = nil
+	}
+	return &GdbmError{ErrorCode: int(C.gdbm_errno), SysErr: syserr}
 }
 
 // Returns a text describing the error.
@@ -299,13 +304,21 @@ func (err *GdbmError) Error() string {
 	} else if err.Code() == GDBM_NOT_DEFINED {
 		return "Error code not defined"
 	} else {
-		return C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
+		errstr := C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
+		if err.SysErr != nil {
+			errstr += ": " + err.SysErr.Error()
+		}
+		return errstr
 	}
 }
 
 // Returns a GDBM error code corresponding to the error.
 func (err *GdbmError) Code() int {
 	return err.ErrorCode
+}
+
+func (err *GdbmError) SysError() error {
+	return err.SysErr
 }
 
 // Unwrap a GdbmError.
@@ -315,8 +328,10 @@ func (err *GdbmError) Unwrap() error {
 
 // Returns true if target and err are the same.
 func (err *GdbmError) Is(target error) bool {
-	gerr, ok := target.(*GdbmError)
-	return ok && err.Code() == gerr.Code()
+	if gerr, ok := target.(*GdbmError); ok {
+		return err.Code() == gerr.Code()
+	}
+	return errors.Is(err.SysError(), target)
 }
 
 // Some error codes exist only in sufficiently recent versions of
@@ -326,52 +341,52 @@ func (err *GdbmError) Defined() bool {
 }
 
 var (
-	ErrNoError              = &GdbmError{GDBM_NO_ERROR}
-	ErrMallocError          = &GdbmError{GDBM_MALLOC_ERROR}
-	ErrBlockSizeError       = &GdbmError{GDBM_BLOCK_SIZE_ERROR}
-	ErrFileOpenError        = &GdbmError{GDBM_FILE_OPEN_ERROR}
-	ErrFileWriteError       = &GdbmError{GDBM_FILE_WRITE_ERROR}
-	ErrFileSeekError        = &GdbmError{GDBM_FILE_SEEK_ERROR}
-	ErrFileReadError        = &GdbmError{GDBM_FILE_READ_ERROR}
-	ErrBadMagicNumber       = &GdbmError{GDBM_BAD_MAGIC_NUMBER}
-	ErrEmptyDatabase        = &GdbmError{GDBM_EMPTY_DATABASE}
-	ErrCantBeReader         = &GdbmError{GDBM_CANT_BE_READER}
-	ErrCantBeWriter         = &GdbmError{GDBM_CANT_BE_WRITER}
-	ErrReaderCantDelete     = &GdbmError{GDBM_READER_CANT_DELETE}
-	ErrReaderCantStore      = &GdbmError{GDBM_READER_CANT_STORE}
-	ErrReaderCantReorganize = &GdbmError{GDBM_READER_CANT_REORGANIZE}
-	ErrItemNotFound         = &GdbmError{GDBM_ITEM_NOT_FOUND}
-	ErrReorganizeFailed     = &GdbmError{GDBM_REORGANIZE_FAILED}
-	ErrCannotReplace        = &GdbmError{GDBM_CANNOT_REPLACE}
-	ErrMalformedData        = &GdbmError{GDBM_MALFORMED_DATA}
-	ErrOptAlreadySet        = &GdbmError{GDBM_OPT_ALREADY_SET}
-	ErrOptBadval            = &GdbmError{GDBM_OPT_BADVAL}
-	ErrByteSwapped          = &GdbmError{GDBM_BYTE_SWAPPED}
-	ErrBadFileOffset        = &GdbmError{GDBM_BAD_FILE_OFFSET}
-	ErrBadOpenFlags         = &GdbmError{GDBM_BAD_OPEN_FLAGS}
-	ErrFileStatError        = &GdbmError{GDBM_FILE_STAT_ERROR}
-	ErrFileEof              = &GdbmError{GDBM_FILE_EOF}
-	ErrNoDbname             = &GdbmError{GDBM_NO_DBNAME}
-	ErrFileOwner            = &GdbmError{GDBM_ERR_FILE_OWNER}
-	ErrFileMode             = &GdbmError{GDBM_ERR_FILE_MODE}
-	ErrNeedRecovery         = &GdbmError{GDBM_NEED_RECOVERY}
-	ErrBackupFailed         = &GdbmError{GDBM_BACKUP_FAILED}
-	ErrDirOverflow          = &GdbmError{GDBM_DIR_OVERFLOW}
-	ErrBadBucket            = &GdbmError{GDBM_BAD_BUCKET}
-	ErrBadHeader            = &GdbmError{GDBM_BAD_HEADER}
-	ErrBadAvail             = &GdbmError{GDBM_BAD_AVAIL}
-	ErrBadHashTable         = &GdbmError{GDBM_BAD_HASH_TABLE}
-	ErrBadDirEntry          = &GdbmError{GDBM_BAD_DIR_ENTRY}
-	ErrFileCloseError       = &GdbmError{GDBM_FILE_CLOSE_ERROR}
-	ErrFileSyncError        = &GdbmError{GDBM_FILE_SYNC_ERROR}
-	ErrFileTruncateError    = &GdbmError{GDBM_FILE_TRUNCATE_ERROR}
-	ErrBucketCacheCorrupted = &GdbmError{GDBM_BUCKET_CACHE_CORRUPTED}
-	ErrBadHashEntry         = &GdbmError{GDBM_BAD_HASH_ENTRY}
-	ErrSnapshotClone        = &GdbmError{GDBM_ERR_SNAPSHOT_CLONE}
-	ErrRealpath             = &GdbmError{GDBM_ERR_REALPATH}
-	ErrUsage                = &GdbmError{GDBM_ERR_USAGE}
+	ErrNoError              = &GdbmError{ErrorCode: GDBM_NO_ERROR}
+	ErrMallocError          = &GdbmError{ErrorCode: GDBM_MALLOC_ERROR}
+	ErrBlockSizeError       = &GdbmError{ErrorCode: GDBM_BLOCK_SIZE_ERROR}
+	ErrFileOpenError        = &GdbmError{ErrorCode: GDBM_FILE_OPEN_ERROR}
+	ErrFileWriteError       = &GdbmError{ErrorCode: GDBM_FILE_WRITE_ERROR}
+	ErrFileSeekError        = &GdbmError{ErrorCode: GDBM_FILE_SEEK_ERROR}
+	ErrFileReadError        = &GdbmError{ErrorCode: GDBM_FILE_READ_ERROR}
+	ErrBadMagicNumber       = &GdbmError{ErrorCode: GDBM_BAD_MAGIC_NUMBER}
+	ErrEmptyDatabase        = &GdbmError{ErrorCode: GDBM_EMPTY_DATABASE}
+	ErrCantBeReader         = &GdbmError{ErrorCode: GDBM_CANT_BE_READER}
+	ErrCantBeWriter         = &GdbmError{ErrorCode: GDBM_CANT_BE_WRITER}
+	ErrReaderCantDelete     = &GdbmError{ErrorCode: GDBM_READER_CANT_DELETE}
+	ErrReaderCantStore      = &GdbmError{ErrorCode: GDBM_READER_CANT_STORE}
+	ErrReaderCantReorganize = &GdbmError{ErrorCode: GDBM_READER_CANT_REORGANIZE}
+	ErrItemNotFound         = &GdbmError{ErrorCode: GDBM_ITEM_NOT_FOUND}
+	ErrReorganizeFailed     = &GdbmError{ErrorCode: GDBM_REORGANIZE_FAILED}
+	ErrCannotReplace        = &GdbmError{ErrorCode: GDBM_CANNOT_REPLACE}
+	ErrMalformedData        = &GdbmError{ErrorCode: GDBM_MALFORMED_DATA}
+	ErrOptAlreadySet        = &GdbmError{ErrorCode: GDBM_OPT_ALREADY_SET}
+	ErrOptBadval            = &GdbmError{ErrorCode: GDBM_OPT_BADVAL}
+	ErrByteSwapped          = &GdbmError{ErrorCode: GDBM_BYTE_SWAPPED}
+	ErrBadFileOffset        = &GdbmError{ErrorCode: GDBM_BAD_FILE_OFFSET}
+	ErrBadOpenFlags         = &GdbmError{ErrorCode: GDBM_BAD_OPEN_FLAGS}
+	ErrFileStatError        = &GdbmError{ErrorCode: GDBM_FILE_STAT_ERROR}
+	ErrFileEof              = &GdbmError{ErrorCode: GDBM_FILE_EOF}
+	ErrNoDbname             = &GdbmError{ErrorCode: GDBM_NO_DBNAME}
+	ErrFileOwner            = &GdbmError{ErrorCode: GDBM_ERR_FILE_OWNER}
+	ErrFileMode             = &GdbmError{ErrorCode: GDBM_ERR_FILE_MODE}
+	ErrNeedRecovery         = &GdbmError{ErrorCode: GDBM_NEED_RECOVERY}
+	ErrBackupFailed         = &GdbmError{ErrorCode: GDBM_BACKUP_FAILED}
+	ErrDirOverflow          = &GdbmError{ErrorCode: GDBM_DIR_OVERFLOW}
+	ErrBadBucket            = &GdbmError{ErrorCode: GDBM_BAD_BUCKET}
+	ErrBadHeader            = &GdbmError{ErrorCode: GDBM_BAD_HEADER}
+	ErrBadAvail             = &GdbmError{ErrorCode: GDBM_BAD_AVAIL}
+	ErrBadHashTable         = &GdbmError{ErrorCode: GDBM_BAD_HASH_TABLE}
+	ErrBadDirEntry          = &GdbmError{ErrorCode: GDBM_BAD_DIR_ENTRY}
+	ErrFileCloseError       = &GdbmError{ErrorCode: GDBM_FILE_CLOSE_ERROR}
+	ErrFileSyncError        = &GdbmError{ErrorCode: GDBM_FILE_SYNC_ERROR}
+	ErrFileTruncateError    = &GdbmError{ErrorCode: GDBM_FILE_TRUNCATE_ERROR}
+	ErrBucketCacheCorrupted = &GdbmError{ErrorCode: GDBM_BUCKET_CACHE_CORRUPTED}
+	ErrBadHashEntry         = &GdbmError{ErrorCode: GDBM_BAD_HASH_ENTRY}
+	ErrSnapshotClone        = &GdbmError{ErrorCode: GDBM_ERR_SNAPSHOT_CLONE}
+	ErrRealpath             = &GdbmError{ErrorCode: GDBM_ERR_REALPATH}
+	ErrUsage                = &GdbmError{ErrorCode: GDBM_ERR_USAGE}
 
-	ErrNotImplemented       = &GdbmError{GDBM_NOT_IMPLEMENTED}
+	ErrNotImplemented       = &GdbmError{ErrorCode: GDBM_NOT_IMPLEMENTED}
 )
 
 func LastSequentialError() error {
@@ -379,7 +394,7 @@ func LastSequentialError() error {
 	if code == GDBM_NO_ERROR {
 		code = GDBM_ITEM_NOT_FOUND
 	}
-	return &GdbmError{code}
+	return &GdbmError{ErrorCode: code}
 }
 
 // Database represents a GDBM database file.
@@ -441,8 +456,9 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
 	if (cfg.Mode == ModeLoad) {
-		if C.gdbm_load(&db.dbf, filename, C.GDBM_REPLACE, 0, nil) != 0 {
-			err = LastGdbmError()
+		res, errno := C.gdbm_load(&db.dbf, filename, C.GDBM_REPLACE, 0, nil)
+		if res != 0 {
+			err = NewGdbmError(errno)
 			if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
 				err = nil
 			} else {
@@ -450,10 +466,12 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 			}
 		}
 	} else {
-		db.dbf = C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
-		if db.dbf == nil {
-			err = LastGdbmError()
+		dbf, errno := C.gdbm_open(filename, C.int(cfg.BlockSize), C.int(cfg.Mode), C.int(cfg.FileMode), nil)
+		if dbf == nil {
+			err = NewGdbmError(errno)
 			db = nil
+		} else {
+			db.dbf = dbf
 		}
 	}
 	return
@@ -499,7 +517,7 @@ func (db *Database) Fetch(key []byte) (value []byte, err error) {
 	defer C.free(unsafe.Pointer(kptr))
 	vdat := C.gdbm_fetch(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))));
 	if vdat.dptr == nil {
-		return []byte{}, LastGdbmError()
+		return []byte{}, db.LastError()
 	}
 	value = C.GoBytes(unsafe.Pointer(vdat.dptr), vdat.dsize)
 	defer C.free(unsafe.Pointer(vdat.dptr))
@@ -522,7 +540,7 @@ func (db *Database) Store(key []byte, value []byte, replace bool) (err error) {
 	res := C.gdbm_store(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))),
 		C.bytes_to_datum(vptr, C.ulong(len(value))), C.int(rflag))
 	if res != 0 {
-		err = LastGdbmError()
+		err = db.LastError()
 	}
 	return
 }
@@ -533,7 +551,7 @@ func (db *Database) Delete(key []byte) (err error) {
 	defer C.free(unsafe.Pointer(kptr))
 	res := C.gdbm_delete(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))))
 	if res != 0 {
-		err = LastGdbmError()
+		err = db.LastError()
 	}
 	return
 }
@@ -545,7 +563,12 @@ func (db *Database) NeedsRecovery() bool {
 
 // Return the last error that occurred on the database.
 func (db *Database) LastError() error {
-	return &GdbmError{int(C.gdbm_last_errno(db.dbf))}
+	code := C.gdbm_last_errno(db.dbf)
+	var syserr syscall.Errno
+	if C.gdbm_check_syserr(code) != 0 {
+		syserr = syscall.Errno(C.gdbm_last_syserr(db.dbf))
+	}
+	return &GdbmError{ErrorCode: int(code), SysErr: syserr}
 }
 
 type DatabaseIterator func () ([]byte, error)
@@ -586,7 +609,7 @@ func (db *Database) Iterator() DatabaseIterator {
 func (db *Database) FileName() (string, error) {
 	s := C.get_db_name(db.dbf)
 	if s == nil {
-		return "", LastGdbmError();
+		return "", db.LastError();
 	}
 	return C.GoString(s), nil
 }
@@ -595,7 +618,7 @@ func (db *Database) FileName() (string, error) {
 func (db *Database) Count() (result uint, err error) {
 	result = uint(C.get_db_count(db.dbf))
 	if C.gdbm_errno != C.GDBM_NO_ERROR {
-		err = LastGdbmError()
+		err = db.LastError()
 	}
 	return
 }
@@ -624,8 +647,9 @@ func (db *Database) Dump(cfg DumpConfig) (err error) {
 	}
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
-	if C.gdbm_dump(db.dbf, filename, C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode)) != 0 {
-		err = LastGdbmError()
+	res, errno := C.gdbm_dump(db.dbf, filename, C.int(cfg.Format), C.int(flags), C.int(cfg.FileMode))
+	if res != 0 {
+		err = NewGdbmError(errno)
 	}
 	return
 }
@@ -649,8 +673,9 @@ func (db *Database) Load(cfg DumpConfig) (err error) {
 	}
 	filename := C.CString(cfg.FileName)
 	defer C.free(unsafe.Pointer(filename))
-	if C.gdbm_load(&db.dbf, filename, C.int(flag), 0, nil) != 0 {
-		err = LastGdbmError()
+	res, errno := C.gdbm_load(&db.dbf, filename, C.int(flag), 0, nil)
+	if res != 0 {
+		err = NewGdbmError(errno)
 		if errors.Is(err, ErrFileOwner) || errors.Is(err, ErrFileMode) {
 			err = nil
 		}
@@ -667,7 +692,7 @@ func (db *Database) LoadFromFile(filename string) error {
 // Reorganize the database.
 func (db *Database) Reorganize() (err error) {
 	if C.gdbm_reorganize(db.dbf) != 0 {
-		err = LastGdbmError()
+		err = db.LastError()
 	}
 	return
 }
@@ -729,7 +754,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 
 	res := C.gdbm_recover(db.dbf, &rcv, C.int(flags))
 	if res != 0 {
-		return nil, LastGdbmError()
+		return nil, db.LastError()
 	}
 
 	if cfg.Backup {
@@ -748,7 +773,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 // Synchronizes the changes in db with its disk file.
 func (db *Database) Sync() (err error) {
 	if C.gdbm_sync(db.dbf) != 0 {
-		err = LastGdbmError()
+		err = db.LastError()
 	}
 	return
 }

@@ -139,7 +139,7 @@ To close a database, use the `Close` method:
 
 Most `GDBM` function return a pair of values: an actual result and
 error status.  Some functions return only error status.  The error
-status is an object of type `GdbmError`, which is a modification
+status is an object of type `GdbmError` - a modification
 of [error](https://pkg.go.dev/errors) which, in addition to the
 methods provided by the standard interface, provides the following:
 
@@ -148,6 +148,13 @@ methods provided by the standard interface, provides the following:
     The `Code()` method returns a `GDBM` [error code](https://www.gnu.org.ua/software/gdbm/manual/index.html#Error-codes.index-error-codes)
     corresponding to the error condition it describes.  All `GDBM` error
     codes are exported as constants.
+
+* `SysError()` __error__
+
+    Some `GDBM` errors have a system error (type `syscall.error`)
+    associated with them.  If such associated error exists, it is
+    returned by the `SysError()` method.  Otherwise, the method
+    returns nil.
 
 * `Defined()` __bool__
 
@@ -172,6 +179,23 @@ Thus, for example, original error code `GDBM_CANNOT_REPLACE` yields
 The library defines an additional error: `ErrNotImplemented`.  This
 error is returned if the called function is not supported by the
 version of `libgdbm` the library is linked with.
+
+### Error matching
+
+Errors returned by `GDBM` functions can be matched (using the
+`errors.Is` method) against `GDBM` error constants and against system
+errors, if a system error is associated with the `GDBM` one.  For
+example, the following code tests if opening the database failed
+because the database file didn't exist:
+
+```
+    db, err := Open("in.db", ModeReader)
+    if err != nil {
+        if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist {
+	    // Handle the error here
+	}
+    }
+```
 
 ## Looking up a key
 
