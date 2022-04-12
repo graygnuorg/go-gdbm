@@ -1,4 +1,4 @@
-/* go-gdbm - Go interface to thr GNU DBM library.
+/* go-gdbm - Go interface to the GNU DBM library.
    Copyright (C) 2022 Sergey Poznyakoff
 
    go-gdbm is free software; you can redistribute it and/or modify it
