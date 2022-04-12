@@ -126,8 +126,59 @@ package gdbm
 # define GDBM_ERR_USAGE GO_GDBM_NOT_DEFINED
 #endif
 
+// The Go db.Sync() and db.Close() methods both return error code.
+// This is based on the ability of the underlying library calls gdbm_sync
+// and gdbm_close to indicate error on return. However, they not always
+// had this ability. The following conditional helps support older GDBM
+// releases, where these functions had void return type:
+
+#if GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR >= 17
+// Starting from GDBM 1.17, functions gdbm_sync and gdbm_close return
+// a meaningful error code.
+typedef int (*GdbmIntFunc)(GDBM_FILE);
+static inline int int_wrapper(GdbmIntFunc f, GDBM_FILE dbf)
+{
+    return (*f)(dbf);
+}
+#else
+// Before version 1.17: both functions were declared as returning void.
+typedef void (*GdbmIntFunc)(GDBM_FILE);
+static inline int int_wrapper(GdbmIntFunc f, GDBM_FILE dbf)
+{
+    (*f)(dbf);
+    return 0;
+}
+#endif
+
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 12)
-static inline int gdbm_last_errno(GDBM_FILE f) { return GO_GDBM_NOT_IMPLEMENTED; }
+static inline int gdbm_check_syserr (gdbm_error n)
+{
+    switch (n) {
+	case GDBM_FILE_OPEN_ERROR:
+	case GDBM_FILE_WRITE_ERROR:
+	case GDBM_FILE_SEEK_ERROR:
+	case GDBM_FILE_READ_ERROR:
+	case GDBM_FILE_STAT_ERROR:
+	case GDBM_FILE_TRUNCATE_ERROR:
+	    return 1;
+    }
+    return 0;
+}
+
+static inline int gdbm_last_syserr(GDBM_FILE dbf)
+{
+    return errno;
+}
+
+#define GDBM_RCVR_DEFAULT              0
+#define GDBM_RCVR_ERRFUN               0
+#define GDBM_RCVR_MAX_FAILED_KEYS      0
+#define GDBM_RCVR_MAX_FAILED_BUCKETS   0
+#define GDBM_RCVR_MAX_FAILURES         0
+#define GDBM_RCVR_BACKUP               0
+#define GDBM_RCVR_FORCE                0
+
+static inline int gdbm_last_errno(GDBM_FILE f) { return gdbm_errno; }
 static inline int gdbm_needs_recovery(GDBM_FILE f) { return 1; }
 
 typedef struct
@@ -712,7 +763,7 @@ func (db *Database) close() {
 
 // Close the database.
 func (db *Database) Close() error {
-	res, err := C.gdbm_close(db.dbf)
+	res, err := C.int_wrapper(C.GdbmIntFunc(C.gdbm_close), db.dbf)
 	if res != 0 {
 		return newGdbmError(err)
 	}
@@ -1000,7 +1051,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 
 // Synchronizes the changes in db with its disk file.
 func (db *Database) Sync() (err error) {
-	if C.gdbm_sync(db.dbf) != 0 {
+	if C.int_wrapper(C.GdbmIntFunc(C.gdbm_sync), db.dbf) != 0 {
 		err = db.LastError()
 	}
 	return
