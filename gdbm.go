@@ -175,6 +175,13 @@ gdbm_latest_snapshot(const char *a, const char *b, const char **ret)
     errno = ENOSYS;
     return GDBM_SNAPSHOT_ERR;
 }
+
+static inline int
+gdbm_convert(GDBM_FILE dbf, int type)
+{
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+    return -1;
+}
 #endif
 
 // Create a GDBM datum from data pointer and its length.
@@ -197,6 +204,18 @@ static inline char const *get_db_name(GDBM_FILE db)
     str = NULL;
 #endif
     return str;
+}
+
+static inline int is_numsync_format(GDBM_FILE db)
+{
+#ifdef GDBM_GETDBFORMAT
+    int n;
+    if (gdbm_setopt(db, GDBM_GETDBFORMAT, &n, sizeof(n)) == 0)
+	return n;
+#else
+    gdbm_errno = GO_GDBM_NOT_IMPLEMENTED;
+#endif
+    return -1;
 }
 
 static inline unsigned int get_db_count(GDBM_FILE db)
@@ -1021,6 +1040,35 @@ func SnapshotRestore(filename string) error {
 	snapshots.Remove()
 
 	return nil
+}
+
+// Change the database format.  If numsync is true, the database is converted
+// to extended (numsync) format (https://www.gnu.org.ua/software/gdbm/manual/Numsync.html).
+// Otherwise, it is converted to standard GDBM format.
+// If the database is already in the requested format, the function is a no-op.
+func (db *Database) Convert(numsync bool) error {
+	flag := C.int(0)
+	if numsync {
+		flag = C.GDBM_NUMSYNC
+	}
+	res, err := C.gdbm_convert(db.dbf, flag)
+	if res != 0 {
+		return newGdbmError(err)
+	}
+	return nil
+}
+
+// Returns true if the database is stored in extended format.
+func (db *Database) IsNumsync() (bool, error) {
+	res, err := C.is_numsync_format(db.dbf)
+	switch res {
+	case 0:
+		return false, nil
+	case 1:
+		return true, nil
+	default:
+		return false, newGdbmError(err)
+	}
 }
 
 // Returns the GDBM library version.

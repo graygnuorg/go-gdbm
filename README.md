@@ -91,8 +91,8 @@ opened or created.  The structure has the following fields:
 	`OpenConfig` function will fail with the
 	`ErrBlockSizeError` error.
     * `OF_NUMSYNC`
-	Create database in [extended format](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html),
-	best suited for effective crash recovery.
+	Create the database in [extended format](#user-content-examining-and-changing-database-format),
+	best suited for effective [crash recovery](#user-content-crash-tolerance).
 
 * `CrashTolerance` __bool__
 
@@ -495,6 +495,52 @@ A simplified interface is provided by the `Reorganize` method:
 ```
 
 This method forces database recovery.
+
+## Examining and Changing Database Format
+
+In `GDBM` version 1.21 or later, databases can be stored on disk in two
+distinct formats: _standard_ format, and [_extended_ (or _numsync_)](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html),	format.
+The extended format is recommended to use with [crash tolerance mode](#user-content-crash-tolerance).
+
+To examine the current database format, use the `IsNumsync` method:
+
+```
+    numsync, err := db.IsNumsync()
+    if err == nil {
+	if numsync {
+	    // Database is in extended format
+	} else {
+	    // Database is in standard format
+	}
+    } else {
+	// An error occurred
+    }
+```
+
+The format is normally determined when the database is created.  By default,
+databases are created in standard format.  To create a database in extended
+format, add the `OF_NUMSYNC` flag to the `DatabaseConfig.Flags` field:
+
+```
+    db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.db",
+						   Mode: ModeNewdb,
+						   Flags: gdbm.OF_NUMSYNC,
+						   FileMode: 0600})
+```
+
+You can also convert existing database to another format, using the
+the `Convert` method.  It takes a single boolean parameter.  If the
+parameter is `true`, the database will be converted to extended format.
+If it is `false`, the database will be converted to standard format.
+If the database is already in the requested format, nothing will be done.
+E.g.:
+
+```
+   err := db.Convert(true)
+   if err {
+       panic(err)
+   }
+```
 
 ## Synchronization
 
