@@ -355,6 +355,7 @@ func (err *GdbmError) Code() int {
 	return err.errorCode
 }
 
+// Returns system error (if any) that caused the failure.
 func (err *GdbmError) SysError() error {
 	return err.sysError
 }
@@ -378,7 +379,7 @@ func (err *GdbmError) Defined() bool {
 	return err.Code() != GDBM_NOT_DEFINED
 }
 
-// SnapshotError represents the result of selecting the snapshot
+// SnapshotError represents the result of an attempt to select the snapshot
 // to recover the database from.
 type SnapshotError uintptr
 
@@ -691,11 +692,15 @@ func (db *Database) close() {
 }
 
 // Close the database.
-func (db *Database) Close() {
-	C.gdbm_close(db.dbf)
+func (db *Database) Close() error {
+	res, err := C.gdbm_close(db.dbf)
+	if res != 0 {
+		return newGdbmError(err)
+	}
 	if db.snapshots != nil {
 		db.snapshots.Remove()
 	}
+	return nil
 }
 
 // Exists returns true if the key exists in the database.

@@ -91,8 +91,13 @@ opened or created.  The structure has the following fields:
 	`OpenConfig` function will fail with the
 	`ErrBlockSizeError` error.
     * `OF_NUMSYNC`
-	Create database in [extended format](https://www.gnu.org.ua/software/gdbm/manual/index.html#Numsync),
+	Create database in [extended format](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html),
 	best suited for effective crash recovery.
+
+* `CrashTolerance` __bool__
+
+    When set to `true`, the database will be opened in [crash tolerance
+    mode](#user-content-crash-tolerance).
 
 The two fields below are used only when creating a new database
 (i.e. when `Mode` is set to `ModeNewdb` or `ModeWrcreat`, and the database
@@ -134,7 +139,7 @@ To close a database, use the `Close` method:
    db.Close()
 ```
 
-## Error handling
+## Error Handling
 
 Most `GDBM` function return a pair of values: an actual result and
 error status.  Some functions return only error status.  The error
@@ -190,13 +195,13 @@ because the database file didn't exist:
 ```
     db, err := gdbm.Open("in.db", gdbm.ModeReader)
     if err != nil {
-        if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist) {
 	    // Handle the error here
 	}
     }
 ```
 
-## Looking up a key
+## Looking up a Key
 
 Both keys and values stored in the database are represented by the Go
 type `[]byte`.  To look up a key, use the `Fetch` method:
@@ -224,7 +229,7 @@ An example of using this function:
     }
 ```
 
-## Storing a key/value pair
+## Storing a Key/Value Pair
 
 The `Store` method stores a key/value pair into a database:
 
@@ -247,7 +252,7 @@ Example:
     }
 ```
 
-## Removing a key/value pair
+## Removing a Key/Value Pair
 
 ```
     func (db *Database) Delete(key []byte) error
@@ -264,7 +269,7 @@ Otherwise, an error describing the failure is returned:
     }
 ```
 
-## Iterating over all keys
+## Iterating Over All Keys
 
 To iterate over all keys in the database, use the following approach:
 
@@ -285,7 +290,7 @@ while iterating over it (e.g. by deleting the key or modifying its
 value).  Doing so will lead to some keys being visited twice or not
 visited at all.
 
-## Inspecting the database
+## Inspecting the Database
 
 <a name="FileName"></a>
 ```
@@ -319,7 +324,7 @@ method, [described below](#Recovering-structural-consistency).
 Returns the last error that was detected when operating on the
 database.
 
-## Dumping a database
+## Dumping a Database
 
 `GDBM` databases can be converted to non-searchable [flat files](https://www.gnu.org.ua/software/gdbm/manual/Flat-files.html),
 also known as __dumps__, and re-created from such files.  This can be
@@ -366,7 +371,7 @@ This method dumps the database to the specified file name in
 overwritten.  If the file is created, its mode is set to 0666 modified
 by the system `umask`.
 
-## Loading a database
+## Loading a Database
 
 There are two ways to re-create a database from an existing dump file.
 First, if the dump is in `AsciiDump` format, you can use
@@ -416,7 +421,7 @@ It is equivalent to
     db.Load(DumpConfig{FileName: filename, Rewrite: true})
 ```
 
-## Recovering structural consistency
+## Recovering Structural Consistency
 
 Certain errors (such as write error when saving stored key) can leave
 database file in [structurally inconsistent state](https://www.gnu.org.ua/software/gdbm/manual/index.html#Database-consistency).  When such a critical
@@ -499,13 +504,122 @@ The `Sync` method synchronizes the changes in `db` with its disk file:
     func (db *Database) Sync() error
 ```
 
-## Informative functions
+## Crash Tolerance
+
+_Crash tolerance_ is a new mechanism that appeared in `GDBM` version 1.21.
+This mechanism, when used correctly, guarantees that a [logically
+consistent](https://www.gnu.org.ua/software/gdbm/manual/index.html#Database-consistency) recent state of application data
+can be recovered following a crash. Specifically, it guarantees that
+the state of the database file corresponding to the most recent
+successful call to `db.Sync()` can be recovered.
+
+The feature must be enabled at compile time, and requires appropriate
+support from the OS and the filesystem.  The design rationale of the
+crash tolerance mechanism is described in detail in the article,
+[Crashproofing the Original NoSQL Key-Value
+Store](https://queue.acm.org/DrillBits5/), by Terence Kelly,
+
+For a database to be opened with crash tolerance support, it must
+reside on a file system that supports _reflink copying_, such as
+XFS, BtrFS or the like.  Crash tolerance is requested by
+setting the `CrashTolerance` field of the [`DatabaseConfig`
+structure](#user-content-opening-and-closing-a-database) to `true`.
+It is also strongly advised to use databases in the [extended database
+format](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html).  To
+do so, when creating the database, set the `gdbm.OF_NUMSYNC` bit in the
+`DatabaseConfig.Flags` field, e.g:
+
+```
+    db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.db",
+						   Mode: ModeWrcreat,
+						   CrashTolerance: true,
+						   Flags: gdbm.OF_NUMSYNC,
+						   FileMode: 0600})
+```
+
+Once a database is opened in crash tolerance mode, two additional _snapshot
+files_ are created in the directory where it resides.  The file names
+are constructed by removing the suffix from the database file name and
+appending suffixes `.s1` and `.s2` instead.  Upon normal closing of the
+database the files will be removed.  If, however, the database is not
+closed properly, e.g. because of the program crash or power failure, the
+files will remain on disk.  In this case, one of them will keep the state
+of the database at the moment of the most recent call to `db.Sync()`.
+
+To ensure that the snapshots keep a logically consistent state of the
+database, care must be taken to call `db.Sync()` at right places.  Follow
+the [discussion in GDBM manual](https://www.gnu.org.ua/software/gdbm/manual/Synchronizing-the-Database.html) to ensure the database is synchronized correctly.
+
+If at the moment of the `gdbm.OpenConfig` invocation both snapshot files exist,
+the function will fail with the `gdbm.ErrSnapshotExist` error.  When this
+happens, the caller is supposed to run the _database recovery_, by
+invoking the `SnapshotRestore` function:
+
+```
+    func SnapshotRestore(filename string) error
+```
+
+The function takes the file name of the database file as its argument.  It
+analyzes both snapshots to select the right one, and recovers the database
+from it.  On success, it returns `nil`.  On error, the following errors can
+be returned:
+
+* `ErrSnapshotBad`
+
+    Neither snapshot file is readable.
+
+* `ErrSnapshotSame`
+
+    Snapshot dates and synchronization counts are the same.
+
+* `ErrSnapshotSuspicious`
+
+    The snapshots are unrealiable
+
+* Any `syscall.Errno` or `os.Errno` value, if a system error occurred in the process.
+
+If any of these are returned, you should attempt [manual crash recovery](https://www.gnu.org.ua/software/gdbm/manual/Manual-crash-recovery.html).
+
+The following code snippet illustrates the usual sequence used when opening
+a database in crash tolerance mode:
+
+```
+    db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: filename,
+						   CrashTolerance: true,
+						   Mode: gdbm.ModeWrcreat,
+						   FileMode: 0666,
+						   Flags: gdbm.OF_NUMSYNC})
+
+    if err != nil {
+	    if errors.Is(err, gdbm.ErrSnapshotExist) {
+		    // Database was not closed properly.  Attempt a crash recovery:
+		    err = gdbm.SnapshotRestore(filename)
+		    if err != nil {
+			    fmt.Printf("Can't restore %s: %s\n", filename, err.Error())
+			    fmt.Printf("Manual crash recovery is advised.\n")
+			    os.Exit(1)
+		    }
+		    // Database was successfully recovered, now try to open it:
+		    db, err = gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: filename,
+								  CrashTolerance: true,
+								  Mode: gdbm.ModeWrcreat,
+								  FileMode: 0666,
+								  Flags: gdbm.OF_NUMSYNC})
+		    if err != nil {
+			    panic(err)
+		    }
+	    } else {
+		    // Another error.
+		    panic(err)
+	    }
+    }
+```
+
+## Informative Functions
 
 ```
     func Version() string
 ```
 
-The `Version` method returns the version of the `libgdbm` library the
+This function returns the version of the `libgdbm` library the
 package is linked with.
-
-
