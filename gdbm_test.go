@@ -58,6 +58,8 @@ func TestFetch(t *testing.T) {
 		t.Fatal("Can't open the database:", err)
 	}
 	defer db.Close()
+
+	// Fetch existing keys
 	for i, k := range keys {
 		val, err := db.Fetch([]byte(k))
 		if err != nil {
@@ -71,6 +73,12 @@ func TestFetch(t *testing.T) {
 			t.Errorf("Wrong value for %d: %q", i, val)
 		}
 	}
+
+	// Try to fetch unexisting key
+	_, err = db.Fetch([]byte("zero"))
+	if !errors.Is(err, ErrItemNotFound) {
+		t.Fatal("Unexpected error: ", err)
+	}
 }
 
 func TestDelete(t *testing.T) {
@@ -83,29 +91,27 @@ func TestDelete(t *testing.T) {
 		t.Fatal("Can't open the database:", err)
 	}
 	defer db.Close()
+
+	// Deleting existing key
 	err = db.Delete([]byte("seven"))
 	if err != nil {
 		t.Error("Can't delete:", err)
 	}
-}
 
-func TestDeleteNonexistent(t *testing.T) {
-	if !createDatabase(t) {
-		return
-	}
-
-	db, err := Open(dbname, ModeWriter)
-	if err != nil {
-		t.Fatal("Can't open the database:", err)
-	}
-	defer db.Close()
-	err = db.Delete([]byte("eleven"))
+	// Deleting unexisting key
+	err = db.Delete([]byte("zero"))
 	if !errors.Is(err, ErrItemNotFound) {
-		t.Error("Unexpected error:", err)
+		t.Fatal("Unexpected error: ", err)
+	}
+
+	// Deleting unexisting key
+	err = db.Delete([]byte("zero"))
+	if !errors.Is(err, ErrItemNotFound) {
+		t.Fatal("Unexpected error: ", err)
 	}
 }
 
-func TestInsertExistent(t *testing.T) {
+func TestInsert(t *testing.T) {
 	if !createDatabase(t) {
 		return
 	}
@@ -115,9 +121,17 @@ func TestInsertExistent(t *testing.T) {
 		t.Fatal("Can't open the database:", err)
 	}
 	defer db.Close()
+
+	// New key
+	err = db.Store([]byte("eleven"), []byte("ELEVEN"), false)
+	if err != nil {
+		t.Fatal("Unexpected error: ", err)
+	}
+
+	// Existing key
 	err = db.Store([]byte("seven"), []byte("SEVEN"), false)
 	if !errors.Is(err, ErrCannotReplace) {
-		t.Error("Unexpected error:", err)
+		t.Fatal("Unexpected error: ", err)
 	}
 }
 
@@ -133,7 +147,7 @@ func TestReplace(t *testing.T) {
 	defer db.Close()
 	err = db.Store([]byte("seven"), []byte("SEVEN"), true)
 	if err != nil {
-		t.Error("Can't replace:", err)
+		t.Error("Can't replace: ", err)
 	}
 }
 
