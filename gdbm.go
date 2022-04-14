@@ -1123,7 +1123,17 @@ func (db *Database) IsNumsync() (bool, error) {
 	}
 }
 
-// Returns the GDBM library version.
-func Version() string {
+// Informative functions
+
+// Returns the version of the underlying GDBM library:
+//   { MAJOR, MINOR, PATCH }
+func Version() []int {
+        return []int{ int(C.gdbm_version_number[0]),
+                      int(C.gdbm_version_number[1]),
+                      int(C.gdbm_version_number[2]) };
+}
+
+// Returns the GDBM library version formatted as a string,
+func VersionString() string {
 	return C.GoString(C.gdbm_version)
 }

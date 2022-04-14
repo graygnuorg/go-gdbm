@@ -686,8 +686,20 @@ a database in crash tolerance mode:
 ## Informative Functions
 
 ```
-    func Version() string
+    func Version() []int
 ```
 
 This function returns the version of the `libgdbm` library the
-package is linked with.
+package is linked with.  The returned array has 3 elements: major and
+minor version numbers, and patch level number.
+
+
+```
+    func VersionString() string
+```
+
+Returns the version of the `libgdbm` library as a formatted string.
+The returned string starts with words `GDBM version`, followed by
+a space and the version numbers delimited by dots.  If patchlevel is
+0, it is omitted.  The version number is followed by the date of
+the library build,

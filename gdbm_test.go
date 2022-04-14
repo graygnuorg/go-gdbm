@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"errors"
 	"os"
+	"regexp"
 )
 
 var dbname = "junk.gdbm"
@@ -297,5 +298,21 @@ func TestErrors(t *testing.T) {
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("Unexpected system error: ", err)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	v := Version()
+	pattern := "GDBM version " + strconv.Itoa(v[0]) + "\\." + strconv.Itoa(v[1])
+	if v[2] > 0 {
+		pattern += "\\." + strconv.Itoa(v[1])
+	}
+	s := VersionString()
+	matched, err := regexp.Match(pattern, []byte(s))
+	if err != nil {
+		t.Fatal("regexp: ", err)
+	}
+	if (!matched) {
+		t.Fatal("Version string ", s, " doesn't match")
 	}
 }
