@@ -857,8 +857,9 @@ type DatabaseIterator func () ([]byte, error)
 //
 // Example:
 //      next := db.Iterator()
-//
-//      for key, err := next(); err == nil; key, err = next() {
+//	var key []byte
+//	var err error
+//      for key, err = next(); err == nil; key, err = next() {
 //              do_something(key)
 //      }
 //      if !errors.Is(err, ErrItemNotFound) {

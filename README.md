@@ -1,6 +1,18 @@
 # go-gdbm
 
-This package provides Go interface for [GNU DBM](https://www.gnu.org.ua/software/gdbm/) library.
+This package provides Go API for [GNU DBM](https://www.gnu.org.ua/software/gdbm/),
+a library that implements a hashed database on a disk file.  It aims to give
+a Go programmer access to all features of GDBM.  Naturally, these features
+evolved over time, so special attention has been paid to supporting a wide
+variety of GDBM versions.  At the time of this writing, the __go-gdbm__ package
+is known to work with GDBM versions ranging from the recent 1.23 down to 1.12.
+
+The package is written by a long-time maintainer of GDBM, Sergey Poznyakoff.
+It is an official [GNU software](https://www.gnu.org).
+
+Notice, that there exist several eponymous Go packages, with names differing
+ony in _module prefix_.  This package is not based on any of them nor does it
+have any code in common with them.
 
 ## Opening and Closing a Database
 
@@ -109,9 +121,9 @@ does not exist).
     system block size is used instead.  The size is adjusted so that
     the block can hold exact number of directory entries.  As a result
     the effective block size can be slightly greater than requested.
-    However, if the `OF_BSEXACT` flag is set (see above) and the size
-    needs to be adjusted, the function will return with the
-    `ErrBlockSizeError` error.
+    This adjustment can be disabled by setting the `OF_BSEXACT` flag
+    (see above): in this case if the adjustment is needed, the function
+    will return the `ErrBlockSizeError` error.
 
 * `FileMode` __int__
 
@@ -123,11 +135,10 @@ An example of using the `OpenConfig` function:
 ```
    import "github.com/graygnuorg/go-gdbm"
 
-   db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{
-			     FileName: "file.gdbm",
-			     Mode: gdbm.ModeNewdb,
-			     Flags: gdbm.OF_NOMMAP,
-			     FileMode: 0600})
+   db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.gdbm",
+						  Mode: gdbm.ModeNewdb,
+						  Flags: gdbm.OF_NOMMAP,
+						  FileMode: 0600})
    if err != nil {
        panic(err)
    }
@@ -164,8 +175,8 @@ methods provided by the standard interface, provides the following:
 
     The `GDBM` library, as any other package, evolved over the time
     introducing, in particular, new error codes.  Use the
-    `err.Defined` method to check if `err` is defined in the version
-    of `GDBM` your library is linked with.
+    `err.Defined` method to check if a particular `err` is defined in the
+    version of `GDBM` your library is linked with.
 
 The `gdbm` library exports errors corresponding to all `GDBM` [error
 codes](https://www.gnu.org.ua/software/gdbm/manual/index.html#Error-codes.index-error-codes).
@@ -229,6 +240,15 @@ An example of using this function:
     }
 ```
 
+__Note__: when using string value as a key, many applications account
+for the terminating `\0` character when computing its length.  When
+accessing such database files from Go, it is important to include the
+0 byte into the key, e.g.
+
+```
+    value, err := db.Fetch(append([]byte(keyString), 0))
+```
+
 ## Storing a Key/Value Pair
 
 The `Store` method stores a key/value pair into a database:
@@ -240,8 +260,8 @@ The `Store` method stores a key/value pair into a database:
 On success, `nil` is returned.  When attempting to store a key that
 already exists in the database, the behavior depends on the value of
 `replace` parameter.  If `replace` is `false` the `ErrCannotReplace`
-error is returned.  If `replace` is `true`, the value will be silently
-overwritten.
+error is returned.  If `replace` is `true`, the new value will be stored,
+replacing the old one.
 
 Example:
 
@@ -275,7 +295,9 @@ To iterate over all keys in the database, use the following approach:
 
 ```
     next := db.Iterator()
-    for key, err := next(); err == nil; key, err = next() {
+    var key []byte
+    var err error
+    for key, err = next(); err == nil; key, err = next() {
 	// Do something with `key`
     }
     if !errors.Is(err, ErrItemNotFound) {
@@ -312,10 +334,11 @@ database.
     func (db *Database) NeedsRecovery() bool
 ```
 
-The `NeedsRecovery` method returns `true` if the database needs
-recovery.  In this case, any other method invoked on that database
-will return an error.  To recover the database, use the `Recover`
-method, [described below](#Recovering-structural-consistency).
+The `NeedsRecovery` method returns `true` if the database is
+[structurally inconsistent](https://www.gnu.org.ua/software/gdbm/manual/Database-consistency.html)
+and needs recovery.  In this case, any other method invoked on that database
+will return an error.  To recover the database, use the [`Recover`
+method](#user-content-recovering-structural-consistency).
 
 ```
     func (db *Database) LastError() error
@@ -329,12 +352,12 @@ database.
 `GDBM` databases can be converted to non-searchable [flat files](https://www.gnu.org.ua/software/gdbm/manual/Flat-files.html),
 also known as __dumps__, and re-created from such files.  This can be
 used, for example, to create back-up copies or for sending the
-database over the wire.  Two dump formats are supported.  The
-`BinaryDump` format is a simpler format, which is retained for
-backward compatibility with older versions of `GDBM`.  The `AsciiDump`
-for mat is a recommended format to use.
+database over the wire.  Two dump formats are supported: `AsciiDump` and
+`BinaryDump`.  The latter is a simpler format, which is
+retained for backward compatibility with older versions of `GDBM`.  The
+recommended format is `AsciiDump`.
 
-To create a dump from an opened database file, use the `Dump` method:
+To create a dump from an open database file, use the `Dump` method:
 
 ```
    func (db *Database) Dump(cfg DumpConfig) error
@@ -348,7 +371,7 @@ The `DumpConfig` structure provides the necessary parameters:
 
 * `Format` __int__
 
-    Requested dump file format: `BinaryDump` or `AsciiDump`.
+    Requested dump file format: `AsciiDump` or `BinaryDump`.
 
 * `Rewrite` __bool__
 
@@ -360,7 +383,7 @@ The `DumpConfig` structure provides the necessary parameters:
 
     File mode to use when creating dump file.
 
-A simplified method is provided:
+A simplified method is provided, that uses default settings:
 
 ```
     func (db *Database) DumpToFile(filename string) error
@@ -381,8 +404,7 @@ file.  For example, to re-create the database from the dump file
 `staff.dump`:
 
 ```
-   db, err := OpenConfig(DatabaseConfig{FileName: "staff.dump",
-					Mode: ModeLoad})
+   db, err := OpenConfig(DatabaseConfig{FileName: "staff.dump", Mode: ModeLoad})
    if err != nil {
        panic(err)
    }
@@ -394,8 +416,8 @@ Another approach is to use the `Load` method on an existing database:
     func (db *Database) Load(cfg DumpConfig) error
 ```
 
-The method takes as an argument a `DumpConfig` structure.  Its fields
-have the following meaning:
+The method takes as an argument a `DumpConfig` structure, discussed above.
+Its fields have the following meaning:
 
 * `FileName`
 
@@ -462,7 +484,7 @@ The following three fields are used when set to a non-0 value:
 
     Report failure after this many failures.
 
-On success, the function returns the reference to a `RecoveryStat` value:
+On success, the function returns a reference to a `RecoveryStat` value:
 
 * `BackupName` __string__
 
@@ -528,12 +550,11 @@ format, add the `OF_NUMSYNC` flag to the `DatabaseConfig.Flags` field:
 						   FileMode: 0600})
 ```
 
-You can also convert existing database to another format, using the
-the `Convert` method.  It takes a single boolean parameter.  If the
-parameter is `true`, the database will be converted to extended format.
-If it is `false`, the database will be converted to standard format.
-If the database is already in the requested format, nothing will be done.
-E.g.:
+To change the format of an existing database, use the `Convert` method.
+It takes a single boolean parameter.  If the parameter is `true`, the
+database will be converted to extended format.  If it is `false`, the
+database will be converted to standard format.  If the database is already
+in the requested format, nothing will be done.  E.g.:
 
 ```
    err := db.Convert(true)
@@ -570,7 +591,7 @@ reside on a file system that supports _reflink copying_, such as
 XFS, BtrFS or the like.  Crash tolerance is requested by
 setting the `CrashTolerance` field of the [`DatabaseConfig`
 structure](#user-content-opening-and-closing-a-database) to `true`.
-It is also strongly advised to use databases in the [extended database
+It is also strongly advised to use databases in [extended database
 format](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html).  To
 do so, when creating the database, set the `gdbm.OF_NUMSYNC` bit in the
 `DatabaseConfig.Flags` field, e.g:
@@ -586,18 +607,19 @@ do so, when creating the database, set the `gdbm.OF_NUMSYNC` bit in the
 Once a database is opened in crash tolerance mode, two additional _snapshot
 files_ are created in the directory where it resides.  The file names
 are constructed by removing the suffix from the database file name and
-appending suffixes `.s1` and `.s2` instead.  Upon normal closing of the
-database the files will be removed.  If, however, the database is not
-closed properly, e.g. because of the program crash or power failure, the
-files will remain on disk.  In this case, one of them will keep the state
-of the database at the moment of the most recent call to `db.Sync()`.
+appending suffixes `.s1` and `.s2` instead.  These files are removed when
+the database is closed.  If, however, the database is not closed properly,
+e.g. because of the program crash or power failure, the files will remain on
+disk.  In this case, one of them will keep the state of the database at the
+moment of the most recent call to `db.Sync()`.
 
 To ensure that the snapshots keep a logically consistent state of the
 database, care must be taken to call `db.Sync()` at right places.  Follow
 the [discussion in GDBM manual](https://www.gnu.org.ua/software/gdbm/manual/Synchronizing-the-Database.html) to ensure the database is synchronized correctly.
 
-If at the moment of the `gdbm.OpenConfig` invocation both snapshot files exist,
-the function will fail with the `gdbm.ErrSnapshotExist` error.  When this
+When called with `DatabaseConfig.CrashTolerance` set to `true`, the
+`gdbm.OpenConfig` function first checks if the snapshot files exist.
+If so, it fails with the `gdbm.ErrSnapshotExist` error.  When this
 happens, the caller is supposed to run the _database recovery_, by
 invoking the `SnapshotRestore` function:
 
@@ -605,10 +627,10 @@ invoking the `SnapshotRestore` function:
     func SnapshotRestore(filename string) error
 ```
 
-The function takes the file name of the database file as its argument.  It
+This function takes the file name of the database file as its argument.  It
 analyzes both snapshots to select the right one, and recovers the database
-from it.  On success, it returns `nil`.  On error, the following errors can
-be returned:
+from it.  On success, `SnapshotRestore` returns `nil`.  On error, it returns
+one of the following errors:
 
 * `ErrSnapshotBad`
 
@@ -624,7 +646,7 @@ be returned:
 
 * Any `syscall.Errno` or `os.Errno` value, if a system error occurred in the process.
 
-If any of these are returned, you should attempt [manual crash recovery](https://www.gnu.org.ua/software/gdbm/manual/Manual-crash-recovery.html).
+If any of these are returned, you are advised to attempt [manual crash recovery](https://www.gnu.org.ua/software/gdbm/manual/Manual-crash-recovery.html).
 
 The following code snippet illustrates the usual sequence used when opening
 a database in crash tolerance mode:
