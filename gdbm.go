@@ -41,6 +41,7 @@ package gdbm
 #define GO_GDBM_NOT_DEFINED     -1
 #define GO_GDBM_NOT_IMPLEMENTED -2
 #define GO_GDBM_SNAPSHOT_EXISTS -3
+#define GO_GDBM_NOT_OPEN        -4
 
 // Provide placeholders for error codes that are not defined in
 // a particular GDBM version.
@@ -309,6 +310,7 @@ import (
 	"strings"
 	"path/filepath"
 	"os"
+	"sync"
 )
 
 const (
@@ -379,6 +381,7 @@ const (
 	GDBM_NOT_DEFINED            = C.GO_GDBM_NOT_DEFINED
 	GDBM_NOT_IMPLEMENTED        = C.GO_GDBM_NOT_IMPLEMENTED
 	GDBM_SNAPSHOT_EXISTS        = C.GO_GDBM_SNAPSHOT_EXISTS
+	GDBM_NOT_OPEN               = C.GO_GDBM_NOT_OPEN
 
 	// Dump file formats
 	BinaryDump                  = C.GDBM_DUMP_FMT_BINARY
@@ -411,6 +414,8 @@ func (err *GdbmError) Error() string {
 		return "Function not implemented"
 	case GDBM_NOT_DEFINED:
 		return "Error code not defined"
+	case GDBM_NOT_OPEN:
+		return "Database not open"
 	default:
 		errstr := C.GoString(C.gdbm_strerror(C.gdbm_error(err.Code())))
 		if err.sysError != nil {
@@ -435,10 +440,19 @@ func (err *GdbmError) Unwrap() error {
 	return errors.New(err.Error())
 }
 
+func (err *GdbmError) isNotImpl() bool {
+	return err.Code() == GDBM_NOT_IMPLEMENTED ||
+		(err.Code() == GDBM_ERR_USAGE && err.SysError() == syscall.ENOSYS)
+}
+
 // Returns true if target and err are the same.
 func (err *GdbmError) Is(target error) bool {
 	if gerr, ok := target.(*GdbmError); ok {
-		return err.Code() == gerr.Code()
+		if err.isNotImpl() && gerr.isNotImpl() {
+			return true
+		} else {
+			return err.Code() == gerr.Code()
+		}
 	}
 	return errors.Is(err.SysError(), target)
 }
@@ -529,6 +543,7 @@ var (
 
 	ErrNotImplemented       = &GdbmError{errorCode: GDBM_NOT_IMPLEMENTED}
 	ErrSnapshotExist        = &GdbmError{errorCode: GDBM_SNAPSHOT_EXISTS}
+	ErrNotOpen              = &GdbmError{errorCode: GDBM_NOT_OPEN}
 
 	ErrSnapshotOK           = SnapshotError(C.GDBM_SNAPSHOT_OK)
 	ErrSnapshotBad          = SnapshotError(C.GDBM_SNAPSHOT_BAD)
@@ -551,6 +566,7 @@ type DatabaseSnapshots [2]string
 type Database struct {
 	dbf C.GDBM_FILE
 	snapshots *DatabaseSnapshots
+	sync sync.RWMutex
 }
 
 // The DatabaseConfig structure controls opening the database.
@@ -738,8 +754,9 @@ func OpenConfig(cfg DatabaseConfig) (db *Database, err error) {
 		defer C.free(unsafe.Pointer(s2))
 		res, errno := C.gdbm_failure_atomic(db.dbf, s1, s2)
 		if res != 0 {
+			err = newGdbmError(errno)
 			db.Close()
-			return nil, errno
+			db = nil
 		}
 	}
 	return
@@ -763,6 +780,11 @@ func (db *Database) close() {
 
 // Close the database.
 func (db *Database) Close() error {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		return ErrNotOpen
+	}
 	res, err := C.int_wrapper(C.GdbmIntFunc(C.gdbm_close), db.dbf)
 	if res != 0 {
 		return newGdbmError(err)
@@ -770,11 +792,17 @@ func (db *Database) Close() error {
 	if db.snapshots != nil {
 		db.snapshots.Remove()
 	}
+	db.dbf = nil
 	return nil
 }
 
 // Exists returns true if the key exists in the database.
 func (db *Database) Exists(key []byte) (bool) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db == nil {
+		return false
+	}
 	kptr := C.CBytes(key)
 	defer C.free(unsafe.Pointer(kptr))
 	return C.gdbm_exists(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key)))) == 1
@@ -792,11 +820,18 @@ func (db *Database) Exists(key []byte) (bool) {
 //       panic(err)
 //     }
 func (db *Database) Fetch(key []byte) (value []byte, err error) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	kptr := C.CBytes(key)
 	defer C.free(unsafe.Pointer(kptr))
 	vdat := C.gdbm_fetch(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))));
 	if vdat.dptr == nil {
-		return []byte{}, db.LastError()
+		return []byte{}, db.lastError()
 	}
 	value = C.GoBytes(unsafe.Pointer(vdat.dptr), vdat.dsize)
 	defer C.free(unsafe.Pointer(vdat.dptr))
@@ -808,6 +843,13 @@ func (db *Database) Fetch(key []byte) (value []byte, err error) {
 // the value and return success.  Otherwise, it will not update the database
 // and will return ErrCannotReplace.
 func (db *Database) Store(key []byte, value []byte, replace bool) (err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	kptr := C.CBytes(key)
 	defer C.free(unsafe.Pointer(kptr))
 	vptr := C.CBytes(value)
@@ -819,29 +861,50 @@ func (db *Database) Store(key []byte, value []byte, replace bool) (err error) {
 	res := C.gdbm_store(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))),
 		C.bytes_to_datum(vptr, C.ulong(len(value))), C.int(rflag))
 	if res != 0 {
-		err = db.LastError()
+		err = db.lastError()
 	}
 	return
 }
 
 // Delete the key.
 func (db *Database) Delete(key []byte) (err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	kptr := C.CBytes(key)
 	defer C.free(unsafe.Pointer(kptr))
 	res := C.gdbm_delete(db.dbf, C.bytes_to_datum(kptr, C.size_t(len(key))))
 	if res != 0 {
-		err = db.LastError()
+		err = db.lastError()
 	}
 	return
 }
 
 // Check if the database needs recovery.  Return true if so.
 func (db *Database) NeedsRecovery() bool {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		return false
+	}
 	return C.gdbm_needs_recovery(db.dbf) != 0
 }
 
 // Return the last error that occurred on the database.
 func (db *Database) LastError() error {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		return ErrNotOpen
+	}
+	return db.lastError()
+}
+
+func (db *Database) lastError() error {
 	code := C.gdbm_last_errno(db.dbf)
 	var syserr error
 	if C.gdbm_check_syserr(code) != 0 {
@@ -872,9 +935,16 @@ func (db *Database) Iterator() DatabaseIterator {
 		err = lastSequentialError()
 	}
 	return func () ([]byte, error) {
+		db.sync.RLock()
+		defer db.sync.RUnlock()
+		if db.dbf == nil {
+			err = ErrNotOpen
+		}
+
 		if err != nil {
 			return []byte{}, err
 		}
+
 		defer C.free(unsafe.Pointer(cur.dptr))
 		ret := C.GoBytes(unsafe.Pointer(cur.dptr), cur.dsize)
 		cur = C.gdbm_nextkey(db.dbf, cur)
@@ -887,18 +957,31 @@ func (db *Database) Iterator() DatabaseIterator {
 
 // Return the file name of the database file.
 func (db *Database) FileName() (string, error) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		return "", ErrNotOpen
+	}
+
 	s := C.get_db_name(db.dbf)
 	if s == nil {
-		return "", db.LastError();
+		return "", db.lastError();
 	}
 	return C.GoString(s), nil
 }
 
 // Return the number of keys stored in the database.
 func (db *Database) Count() (result uint, err error) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	result = uint(C.get_db_count(db.dbf))
 	if C.gdbm_errno != C.GDBM_NO_ERROR {
-		err = db.LastError()
+		err = db.lastError()
 	}
 	return
 }
@@ -921,6 +1004,12 @@ type DumpConfig struct {
 // Dump creates a dump of the database file using the information from
 // DumpConfig.
 func (db *Database) Dump(cfg DumpConfig) (err error) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+	}
+
 	flags := C.GDBM_WRCREAT;
 	if cfg.Rewrite {
 		flags = C.GDBM_NEWDB
@@ -947,6 +1036,12 @@ func (db *Database) DumpToFile(filename string) error {
 // the database.  If cfg.Rewrite is true, existing keys will be overwritten
 // with the data from the dump.  Rest of members of DumpConfig is ignored.
 func (db *Database) Load(cfg DumpConfig) (err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+	}
+
 	flag := C.GDBM_INSERT;
 	if cfg.Rewrite {
 		flag = C.GDBM_REPLACE
@@ -971,8 +1066,15 @@ func (db *Database) LoadFromFile(filename string) error {
 
 // Reorganize the database.
 func (db *Database) Reorganize() (err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	if C.gdbm_reorganize(db.dbf) != 0 {
-		err = db.LastError()
+		err = db.lastError()
 	}
 	return
 }
@@ -1011,6 +1113,13 @@ type RecoveryStat struct {
 
 // Recover the database.
 func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	var rcv C.gdbm_recovery
 	flags := 0
 	if cfg.MaxFailedKeys > 0 {
@@ -1034,7 +1143,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 
 	res := C.gdbm_recover(db.dbf, &rcv, C.int(flags))
 	if res != 0 {
-		return nil, db.LastError()
+		return nil, db.lastError()
 	}
 
 	if cfg.Backup {
@@ -1052,8 +1161,15 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 
 // Synchronizes the changes in db with its disk file.
 func (db *Database) Sync() (err error) {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		err = ErrNotOpen
+		return
+	}
+
 	if C.int_wrapper(C.GdbmIntFunc(C.gdbm_sync), db.dbf) != 0 {
-		err = db.LastError()
+		err = db.lastError()
 	}
 	return
 }
@@ -1099,6 +1215,12 @@ func SnapshotRestore(filename string) error {
 // Otherwise, it is converted to standard GDBM format.
 // If the database is already in the requested format, the function is a no-op.
 func (db *Database) Convert(numsync bool) error {
+	db.sync.Lock()
+	defer db.sync.Unlock()
+	if db.dbf == nil {
+		return ErrNotOpen
+	}
+
 	flag := C.int(0)
 	if numsync {
 		flag = C.GDBM_NUMSYNC
@@ -1112,6 +1234,12 @@ func (db *Database) Convert(numsync bool) error {
 
 // Returns true if the database is stored in extended format.
 func (db *Database) IsNumsync() (bool, error) {
+	db.sync.RLock()
+	defer db.sync.RUnlock()
+	if db.dbf == nil {
+		return false, ErrNotOpen
+	}
+
 	res, err := C.is_numsync_format(db.dbf)
 	switch res {
 	case 0:
@@ -1128,9 +1256,9 @@ func (db *Database) IsNumsync() (bool, error) {
 // Returns the version of the underlying GDBM library:
 //   { MAJOR, MINOR, PATCH }
 func Version() []int {
-        return []int{ int(C.gdbm_version_number[0]),
-                      int(C.gdbm_version_number[1]),
-                      int(C.gdbm_version_number[2]) };
+	return []int{ int(C.gdbm_version_number[0]),
+		      int(C.gdbm_version_number[1]),
+		      int(C.gdbm_version_number[2]) };
 }
 
 // Returns the GDBM library version formatted as a string,
