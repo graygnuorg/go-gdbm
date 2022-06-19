@@ -18,7 +18,7 @@ have any code in common with them.
 
 The simplest way to open a database is using the `Open` function:
 
-```
+```golang
    import "github.com/graygnuorg/go-gdbm"
 
    db, err := gdbm.Open("input.gdbm", gdbm.ModeReader)
@@ -132,7 +132,7 @@ does not exist).
 
 An example of using the `OpenConfig` function:
 
-```
+```golang
    import "github.com/graygnuorg/go-gdbm"
 
    db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.gdbm",
@@ -146,7 +146,7 @@ An example of using the `OpenConfig` function:
 
 To close a database, use the `Close` method:
 
-```
+```golang
    db.Close()
 ```
 
@@ -203,7 +203,7 @@ errors, if a system error is associated with the `GDBM` one.  For
 example, the following code tests if opening the database failed
 because the database file didn't exist:
 
-```
+```golang
     db, err := gdbm.Open("in.db", gdbm.ModeReader)
     if err != nil {
 	if errors.Is(err, gdbm.ErrFileOpenError) && errors.Is(err, os.ErrNotExist) {
@@ -217,8 +217,8 @@ because the database file didn't exist:
 Both keys and values stored in the database are represented by the Go
 type `[]byte`.  To look up a key, use the `Fetch` method:
 
-```
-   func (db *Database) Fetch(key []byte) (value []byte, err error)
+```golang
+   func (db *gdbm.Database) Fetch(key []byte) (value []byte, err error)
 ```
 
 On success, the method returns the value obtained from the database
@@ -229,12 +229,12 @@ specified.
 
 An example of using this function:
 
-```
+```golang
     value, err := db.Fetch(key)
     if err == nil {
        // Use the `value`
     } else if errors.Is(err, ErrItemNotFound) {
-       fmt.Println("key not found"
+       fmt.Println("key not found")
     } else {
        panic(err)
     }
@@ -245,7 +245,7 @@ for the terminating `\0` character when computing its length.  When
 accessing such database files from Go, it is important to include the
 0 byte into the key, e.g.
 
-```
+```golang
     value, err := db.Fetch(append([]byte(keyString), 0))
 ```
 
@@ -253,8 +253,8 @@ accessing such database files from Go, it is important to include the
 
 The `Store` method stores a key/value pair into a database:
 
-```
-    func (db *Database) Store(key []byte, value []byte, replace bool) error
+```golang
+    func (db *gdbm.Database) Store(key []byte, value []byte, replace bool) error
 ```
 
 On success, `nil` is returned.  When attempting to store a key that
@@ -265,7 +265,7 @@ replacing the old one.
 
 Example:
 
-```
+```golang
     err = db.Store(key, value, false)
     if err != nil {
 	panic(err)
@@ -274,16 +274,16 @@ Example:
 
 ## Removing a Key/Value Pair
 
-```
-    func (db *Database) Delete(key []byte) error
+```golang
+    func (db *gdbm.Database) Delete(key []byte) error
 ```
 
 The `Delete` method returns `nil` on success.  If the requested key
 was not found in the database, `ErrItemNotFound` is returned.
 Otherwise, an error describing the failure is returned:
 
-```
-    err := Delete(key)
+```golang
+    err := db.Delete(key)
     if err != nil && !errors.Is(err, ErrItemNotFound) {
 	panic(err)
     }
@@ -293,7 +293,7 @@ Otherwise, an error describing the failure is returned:
 
 To iterate over all keys in the database, use the following approach:
 
-```
+```golang
     next := db.Iterator()
     var key []byte
     var err error
@@ -315,23 +315,23 @@ visited at all.
 ## Inspecting the Database
 
 <a name="FileName"></a>
-```
-    func (db *Database) FileName() (string, error)
+```golang
+    func (db *gdbm.Database) FileName() (string, error)
 ```
 
 The `FileName` function returns the name of the database.  Using this
 function is handy, in particular, if the database was created from an
 ASCII dump file using `OpenConfig` with `ModeLoad`.
 
-```
-    func (db *Database) Count() (uint, error)
+```golang
+    func (db *gdbm.Database) Count() (uint, error)
 ```
 
 The `Count` method returns the number of key/value pairs in the
 database.
 
-```
-    func (db *Database) NeedsRecovery() bool
+```golang
+    func (db *gdbm.Database) NeedsRecovery() bool
 ```
 
 The `NeedsRecovery` method returns `true` if the database is
@@ -340,8 +340,8 @@ and needs recovery.  In this case, any other method invoked on that database
 will return an error.  To recover the database, use the [`Recover`
 method](#user-content-recovering-structural-consistency).
 
-```
-    func (db *Database) LastError() error
+```golang
+    func (db *gdbm.Database) LastError() error
 ```
 
 Returns the last error that was detected when operating on the
@@ -359,8 +359,8 @@ recommended format is `AsciiDump`.
 
 To create a dump from an open database file, use the `Dump` method:
 
-```
-   func (db *Database) Dump(cfg DumpConfig) error
+```golang
+   func (db *db.Database) Dump(cfg gdbm.DumpConfig) error
 ```
 
 The `DumpConfig` structure provides the necessary parameters:
@@ -385,8 +385,8 @@ The `DumpConfig` structure provides the necessary parameters:
 
 A simplified method is provided, that uses default settings:
 
-```
-    func (db *Database) DumpToFile(filename string) error
+```golang
+    func (db *gdbm.Database) DumpToFile(filename string) error
 ```
 
 This method dumps the database to the specified file name in
@@ -403,8 +403,8 @@ First, if the dump is in `AsciiDump` format, you can use
 file.  For example, to re-create the database from the dump file
 `staff.dump`:
 
-```
-   db, err := OpenConfig(DatabaseConfig{FileName: "staff.dump", Mode: ModeLoad})
+```golang
+   db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "staff.dump", Mode: gdbm.ModeLoad})
    if err != nil {
        panic(err)
    }
@@ -412,8 +412,8 @@ file.  For example, to re-create the database from the dump file
 
 Another approach is to use the `Load` method on an existing database:
 
-```
-    func (db *Database) Load(cfg DumpConfig) error
+```golang
+    func (db *gdbm.Database) Load(cfg gdbm.DumpConfig) error
 ```
 
 The method takes as an argument a `DumpConfig` structure, discussed above.
@@ -433,13 +433,13 @@ The `FileMode` and `Format` fields are ignored.
 
 A simplified interface is provided:
 
-```
-    func (db *Database) LoadFromFile(filename string) error
+```golang
+    func (db *gdbm.Database) LoadFromFile(filename string) error
 ```
 
 It is equivalent to
 
-```
+```golang
     db.Load(DumpConfig{FileName: filename, Rewrite: true})
 ```
 
@@ -455,8 +455,8 @@ Subsequent calls to any `GDBM` methods on that database (except
 The `Recover` method attempts to recover the database into usable
 state:
 
-```
-    func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error)
+```golang
+    func (db *gdbm.Database) Recover(cfg gdbm.RecoveryConfig) (stat *gdbm.RecoveryStat, err error)
 ```
 
 The `RecoveryConfig` structure controls the recovery process:
@@ -512,8 +512,8 @@ On success, the function returns a reference to a `RecoveryStat` value:
 
 A simplified interface is provided by the `Reorganize` method:
 
-```
-    func (db *Database) Reorganize() error
+```golang
+    func (db *gdbm.Database) Reorganize() error
 ```
 
 This method forces database recovery.
@@ -526,7 +526,7 @@ The extended format is recommended to use with [crash tolerance mode](#user-cont
 
 To examine the current database format, use the `IsNumsync` method:
 
-```
+```golang
     numsync, err := db.IsNumsync()
     if err == nil {
 	if numsync {
@@ -543,9 +543,9 @@ The format is normally determined when the database is created.  By default,
 databases are created in standard format.  To create a database in extended
 format, add the `OF_NUMSYNC` flag to the `DatabaseConfig.Flags` field:
 
-```
+```golang
     db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.db",
-						   Mode: ModeNewdb,
+						   Mode: gdbm.ModeNewdb,
 						   Flags: gdbm.OF_NUMSYNC,
 						   FileMode: 0600})
 ```
@@ -556,7 +556,7 @@ database will be converted to extended format.  If it is `false`, the
 database will be converted to standard format.  If the database is already
 in the requested format, nothing will be done.  E.g.:
 
-```
+```golang
    err := db.Convert(true)
    if err {
        panic(err)
@@ -567,8 +567,8 @@ in the requested format, nothing will be done.  E.g.:
 
 The `Sync` method synchronizes the changes in `db` with its disk file:
 
-```
-    func (db *Database) Sync() error
+```golang
+    func (db *gdbm.Database) Sync() error
 ```
 
 ## Crash Tolerance
@@ -596,9 +596,9 @@ format](https://www.gnu.org.ua/software/gdbm/manual/Numsync.html).  To
 do so, when creating the database, set the `gdbm.OF_NUMSYNC` bit in the
 `DatabaseConfig.Flags` field, e.g:
 
-```
+```golang
     db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: "file.db",
-						   Mode: ModeWrcreat,
+						   Mode: gdbm.ModeWrcreat,
 						   CrashTolerance: true,
 						   Flags: gdbm.OF_NUMSYNC,
 						   FileMode: 0600})
@@ -623,7 +623,7 @@ If so, it fails with the `gdbm.ErrSnapshotExist` error.  When this
 happens, the caller is supposed to run the _database recovery_, by
 invoking the `SnapshotRestore` function:
 
-```
+```golang
     func SnapshotRestore(filename string) error
 ```
 
@@ -651,7 +651,7 @@ If any of these are returned, you are advised to attempt [manual crash recovery]
 The following code snippet illustrates the usual sequence used when opening
 a database in crash tolerance mode:
 
-```
+```golang
     db, err := gdbm.OpenConfig(gdbm.DatabaseConfig{FileName: filename,
 						   CrashTolerance: true,
 						   Mode: gdbm.ModeWrcreat,
@@ -685,7 +685,7 @@ a database in crash tolerance mode:
 
 ## Informative Functions
 
-```
+```golang
     func Version() []int
 ```
 
@@ -694,7 +694,7 @@ package is linked with.  The returned array has 3 elements: major and
 minor version numbers, and patch level number.
 
 
-```
+```golang
     func VersionString() string
 ```
 
