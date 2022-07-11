@@ -204,6 +204,16 @@ static inline int gdbm_recover(GDBM_FILE dbf, gdbm_recovery *rcvr, int flags)
 }
 #endif
 
+#if GDBM_VERSION_MAJOR == 1 && GDBM_VERSION_MINOR < 15
+static inline size_t gdbm_recover_duplicate_keys(gdbm_recovery *rcvr) {
+    return 0;
+}
+#else
+static inline size_t gdbm_recover_duplicate_keys(gdbm_recovery *rcvr) {
+    return rcvr->duplicate_keys;
+}
+#endif
+
 #if !(GDBM_VERSION_MAJOR > 1 || GDBM_VERSION_MINOR > 21)
 enum gdbm_latest_snapshot_status
   {
@@ -1154,7 +1164,7 @@ func (db *Database) Recover(cfg RecoveryConfig) (stat *RecoveryStat, err error) 
 	stat.RecoveredBuckets = uint(rcv.recovered_buckets)
 	stat.FailedKeys = uint(rcv.failed_keys)
 	stat.FailedBuckets = uint(rcv.failed_buckets)
-	stat.DuplicateKeys = uint(rcv.duplicate_keys)
+	stat.DuplicateKeys = uint(C.gdbm_recover_duplicate_keys(&rcv))
 
 	return
 }
